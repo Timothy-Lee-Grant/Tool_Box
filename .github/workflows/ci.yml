@@ -1,0 +1,33 @@
+# Plan 001, Step 6 — honest CI.
+# Green here must MEAN something: real restore, real build with warnings fatal,
+# real tests. Proven capable of going red before it earned the badge (Step 6.2).
+name: CI
+
+on: [push, pull_request]
+
+# A newer push to the same branch cancels the stale run — no queue of zombie builds.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore
+
+      # -warnaserror is belt-and-suspenders: Directory.Build.props already makes
+      # compiler warnings fatal; this flag additionally makes MSBuild-level warnings fatal.
+      - name: Build
+        run: dotnet build --no-restore --configuration Release -warnaserror
+
+      - name: Test
+        run: dotnet test --no-build --configuration Release

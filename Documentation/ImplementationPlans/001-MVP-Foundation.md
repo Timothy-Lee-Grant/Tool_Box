@@ -295,6 +295,22 @@ Verification (Timothy's machine): `dotnet test` — expect 17 passed, 0 failed, 
 
 State: tests written, unverified. **Awaiting: test-run confirmation + permission for Step 6 (honest CI).**
 
+**[2026-07-16, Timothy]** Permission granted for Step 6.
+
+**[2026-07-16, AI — Step 6: Honest CI]**
+
+Added `.github/workflows/ci.yml`: restore → build (Release, `-warnaserror`) → test, on every push and PR, with concurrency-cancellation so stale runs die when a newer push arrives. The `-warnaserror` flag is belt-and-suspenders on top of Directory.Build.props: the props file makes *compiler* warnings fatal, the flag additionally makes *MSBuild-level* warnings fatal.
+
+6.2 — the honesty ritual — is Timothy's to perform (CI runs on GitHub, not from here):
+
+1. Push the branch; confirm the workflow runs and goes **green**.
+2. Break a test on purpose — e.g. in `OutputLimiterTests.ReturnsTextUnchanged_WhenUnderBudget`, change the expectation to `"goodbye"` — commit, push.
+3. Confirm CI goes **red**, and open the run log to see the actual failing assertion (this is the moment that was missing from LLM_Monitor's original CI: proof the pipeline executes real code).
+4. Revert the commit (`git revert HEAD`), push, confirm green again.
+5. Paste both run links (red and green) into Stage 5.
+
+State: workflow written; awaiting Timothy's ritual results. **Then: permission for Step 7 (client integration + docs), the final step.**
+
 ---
 
 # Stage 5 (Final Results, Testing, Verification)
