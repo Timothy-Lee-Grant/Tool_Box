@@ -212,6 +212,34 @@ State: Core code complete, compile unverified (sandbox has no SDK). **Awaiting: 
 
 State: Host code complete, unverified. **Awaiting: Inspector handshake confirmation + permission for Step 4 (Basics toolset).**
 
+**[2026-07-16, AI — Step 3 verification failed, diagnosing]**
+
+Symptom: Inspector shows "Connection Error — check if your MCP server is running and proxy token is correct"; History has no successful `initialize`; the Server Notifications pane received ~18 `notifications/message` entries (the Inspector surfaces the server process's stderr there — so the process *started* and logged, but the protocol handshake on stdout never completed).
+
+Prime suspect: **`dotnet run` itself pollutes stdout.** Before our code ever executes, `dotnet run` may write MSBuild restore/build output to stdout. The Inspector's proxy tries to parse those lines as JSON-RPC and gives up. This is ADR-004's failure signature — just caused by the *launcher*, not our logging.
+
+Diagnosis procedure (Timothy's machine, from repo root):
+
+1. The stdout purity test:
+
+   ```
+   dotnet run --project src/ToolBox.Host 2>/dev/null
+   ```
+
+   A correct stdio server prints **nothing** and sits waiting (Ctrl+C to exit). Any visible text = stdout pollution, and whatever printed is the culprit.
+
+2. The fix that removes MSBuild from the launch path entirely — run the built DLL, not the build system:
+
+   ```
+   dotnet build
+   ```
+
+   then in Inspector: Command `dotnet`, Arguments `src/ToolBox.Host/bin/Debug/net10.0/ToolBox.Host.dll`, Connect.
+
+3. Expand one of the `notifications/message` entries and note its content in this log — it should be our `Microsoft.Hosting.Lifetime` stderr lines, which confirms `UseStderrOnly()` is doing its job.
+
+Lesson for the record: "my code is clean" is not the same as "the process's stdout is clean" — the launcher is part of the process. For real client registration (Step 7) we'll prefer a launch command with no build step in it.
+
 ---
 
 # Stage 5 (Final Results, Testing, Verification)
