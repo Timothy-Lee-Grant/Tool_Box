@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using ToolBox.Basics;
 using ToolBox.Core.DependencyInjection;
 using ToolBox.Core.Logging;
 
@@ -15,10 +16,11 @@ builder.Logging.UseStderrOnly();
 
 builder.Services.AddToolBoxCore();
 
-// Toolsets compose here (Step 4 adds: builder.Services.AddBasicsToolset();)
-
 builder.Services
     .AddMcpServer()
-    .WithStdioServerTransport();
+    .WithStdioServerTransport()
+    // Toolsets compose below — one line each, and the Host learns nothing
+    // about what's inside them.
+    .AddBasicsToolset();
 
 await builder.Build().RunAsync();

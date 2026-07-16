@@ -252,6 +252,29 @@ Verification results post-install:
 
 Step 3 checkpoint is met. **Permission requested for Step 4 (Basics toolset).**
 
+**[2026-07-16, Timothy]** Permission granted for Step 4.
+
+**[2026-07-16, AI — Step 4: Basics toolset]**
+
+Created in `src/ToolSets/ToolBox.Basics/`:
+
+- `BasicsTools.cs` — `[McpServerToolType]` class with the three tools: `ping` (routes even its trivial reply through `OutputLimiter` — the discipline is the point), `server_info` (returns Core's `ServerInfo` via constructor-injected `ServerInfoProvider` — proves DI into tools), `current_time` (UTC + local ISO-8601 + zone id, from the injected `TimeProvider`).
+- `CurrentTime.cs` — result record; the SDK serializes records to structured JSON automatically.
+- `BasicsToolsetExtensions.cs` — `AddBasicsToolset(this IMcpServerBuilder)`: registers the `ToolsetDescriptor` and `WithTools<BasicsTools>()`. One public doorway per toolset.
+- csproj: added `ModelContextProtocol` 1.4.1 (needed for the tool attributes and registration extension).
+
+Host `Program.cs`: composition is now `.AddMcpServer().WithStdioServerTransport().AddBasicsToolset()` — a toolset costs the Host exactly one line and zero knowledge of its internals.
+
+Design notes:
+
+1. **Registration extends `IMcpServerBuilder`, not `IServiceCollection`** (a refinement of Step 2.4's sketch): `WithTools<T>()` lives on the builder, and this keeps tool-type names out of the Host entirely.
+2. **Boundary honesty:** toolsets now reference the `ModelContextProtocol` package — unavoidable, since the attributes come from it. The rule that survives is narrower and still valuable: toolsets never touch the *transport*; only the Host chooses stdio vs HTTP.
+3. **Descriptions are prompts** — the model never sees the C# code, only those strings. Written accordingly (e.g. current_time says "use this instead of guessing the date").
+
+Verification (Timothy's machine): `dotnet build`, then Inspector against the rebuilt DLL — expect **3 tools listed**; call each: `ping` with and without a message; `server_info` should report `Toolsets: ["Basics"]` and a plausible uptime; `current_time` should match the wall clock.
+
+State: code complete, unverified. **Awaiting: Inspector 3-tool confirmation + permission for Step 5 (tests).**
+
 ---
 
 # Stage 5 (Final Results, Testing, Verification)
