@@ -281,7 +281,7 @@ A self-built AI orchestration platform. Phase 1 was 100% hand-written code (AI u
 
 ## Tool_Box (July 2026, starting)
 
-An MCP tool platform: a C#/.NET server (official ModelContextProtocol SDK, .NET 10) exposing toolsets to AI agents — Claude Desktop/Code and, over HTTP, LLM_Monitor's LangGraph tool loop. Goals: give LLM_Monitor real tools, learn packaging/cross-project consumption (dotnet tool, Docker image, NuGet), and build a portfolio-grade platform. Architecture: thin Host + Core plumbing (bounded output, audit, read/write tool tiers) + independent toolset libraries, stdio first then streamable HTTP. Plan 001 (MVP foundation: scaffolding, Basics toolset, honest CI) drafted and under staged review per the ImplementationPlans process.
+An MCP tool platform: a C#/.NET server (official ModelContextProtocol SDK, .NET 10) exposing toolsets to AI agents — Claude Desktop/Code and, over HTTP, LLM_Monitor's LangGraph tool loop. Goals: give LLM_Monitor real tools, learn packaging/cross-project consumption (dotnet tool, Docker image, NuGet), and build a portfolio-grade platform. Architecture: thin Host + Core plumbing (bounded output, audit, read/write tool tiers) + independent toolset libraries, stdio first then streamable HTTP. Plan 001 (MVP foundation) implemented 2026-07-16 via the staged-permission process: Host/Core/Basics projects, Directory.Build.props with warnings-as-errors, stderr-only logging (stdout = protocol), OutputLimiter discipline, TimeProvider-injected clock, 17 tests including a reflection test enforcing descriptions-as-prompts, honest CI with a deliberate-red ritual, tool catalog + 6 ADRs. Debugging story: Inspector handshake failure root-caused to missing .NET 10 runtime (preview SDK compiles what it can't run).
 
 ---
 

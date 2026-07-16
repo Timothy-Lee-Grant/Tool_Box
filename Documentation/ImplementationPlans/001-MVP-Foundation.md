@@ -311,6 +311,21 @@ Added `.github/workflows/ci.yml`: restore → build (Release, `-warnaserror`) �
 
 State: workflow written; awaiting Timothy's ritual results. **Then: permission for Step 7 (client integration + docs), the final step.**
 
+**[2026-07-16, Timothy]** Permission granted for Step 7.
+
+**[2026-07-16, AI — Step 7: Client integration + documentation]**
+
+- 7.1 README gained a "Connect a client" section: Claude Desktop config, Claude Code registration, and the Inspector command — all launching the **built Release DLL**, never `dotnet run`, so no build system sits in the protocol's launch path.
+- 7.2 `docs/TOOL_CATALOG.md` — all three tools with parameters, output shapes, and read/write classification (all read). The catalog states the platform conventions at the top so future toolsets inherit them by default.
+- 7.3 `docs/DECISIONS.md` — six ADRs, including two that *emerged* during implementation rather than being planned: ADR-005 (registration moved to `IMcpServerBuilder` extensions) and ADR-006 (the net11-preview/net10-runtime lesson). An ADR log that only contains planned decisions is a brochure; the emergent ones are the evidence it's real.
+
+Step 7 complete — **all seven steps are implemented.** Remaining before this plan closes: Stage 5 verification against the Definition of Done, performed on Timothy's machine:
+
+1. Fresh-clone check: `git clone` to a temp folder → `dotnet build` → `dotnet test` (zero warnings, 17 passed).
+2. Register with Claude Desktop or Claude Code per README → ask the model to ping the toolbox and report server info → it answers via tool calls.
+3. CI: paste the green run link and the deliberate-red run link (Step 6.2 ritual).
+4. Record results + any deviations in Stage 5. Then plan 001 is closed, and plan 002 (streamable HTTP transport + LLM_Monitor integration) can open.
+
 ---
 
 # Stage 5 (Final Results, Testing, Verification)

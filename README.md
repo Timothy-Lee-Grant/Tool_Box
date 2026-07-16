@@ -28,6 +28,41 @@ dotnet build
 dotnet test
 ```
 
+## Connect a client
+
+Build once in Release, then register the built DLL — not `dotnet run` — so no build system sits in the protocol's launch path:
+
+```
+dotnet build -c Release
+```
+
+**Claude Desktop** (`claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "toolbox": {
+      "command": "dotnet",
+      "args": ["/Users/timothygrant/Desktop/projects/Tool_Box/src/ToolBox.Host/bin/Release/net10.0/ToolBox.Host.dll"]
+    }
+  }
+}
+```
+
+**Claude Code:**
+
+```
+claude mcp add toolbox -- dotnet /Users/timothygrant/Desktop/projects/Tool_Box/src/ToolBox.Host/bin/Release/net10.0/ToolBox.Host.dll
+```
+
+**Interactive debugging:**
+
+```
+npx @modelcontextprotocol/inspector dotnet src/ToolBox.Host/bin/Release/net10.0/ToolBox.Host.dll
+```
+
+Tools available: see [docs/TOOL_CATALOG.md](docs/TOOL_CATALOG.md). Rationale for design choices: [docs/DECISIONS.md](docs/DECISIONS.md).
+
 ## Status
 
 Implementation plan 001 (MVP foundation) in progress — see `Documentation/ImplementationPlans/`. Current toolset: `Basics` (`ping`, `server_info`, `current_time`) — deliberately trivial; the deliverable of plan 001 is the architecture, not the tools.
