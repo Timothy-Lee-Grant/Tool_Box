@@ -326,6 +326,24 @@ Step 7 complete — **all seven steps are implemented.** Remaining before this p
 3. CI: paste the green run link and the deliberate-red run link (Step 6.2 ritual).
 4. Record results + any deviations in Stage 5. Then plan 001 is closed, and plan 002 (streamable HTTP transport + LLM_Monitor integration) can open.
 
+**[2026-07-16, AI — CI caught a real bug (in a test)]**
+
+First CI run on GitHub failed: `OutputLimiterTests.Truncates_WhenOverBudget`, assertion "truncated result should be shorter than the original."
+
+Root cause — the AI's mistake, for the record: the test asserted a property the code never promised. With 150 chars cut to a 100-char budget, only 50 chars are omitted, but the honesty marker is ~78 chars — so the truncated result is legitimately *longer* than the original. The limiter's real contract is "kept content ≤ budget; marker is small constant overhead; total is never proportional to input," and the sloppy assertion only held when the omitted tail exceeded the marker length.
+
+Fix (test-side; the production code was correct):
+
+- `Truncates_WhenOverBudget` now asserts the real contract: kept content is exactly the budget (`result.IndexOf('\n') == 100`).
+- New test `Result_IsAlwaysBounded_EvenForHugeInput`: 500k input, 100 budget → result within budget + marker allowance. This is the assertion that actually protects the context window.
+- `OutputLimiter` XML docs now state the contract precisely.
+
+Also corrected: earlier log entries said "17 tests"; the true count was 21 (miscounted), now 22 with the new boundedness test.
+
+Two lessons worth keeping: (1) a test can be wrong while the code is right — a failing test means *disagreement*, and you must determine which side holds the contract; (2) this red run was **unplanned**, which makes it better evidence than the ritual red: the pipeline caught a genuine defect on its first day of work.
+
+**Awaiting:** push + green CI run to close Stage 5 item 3.
+
 ---
 
 # Stage 5 (Final Results, Testing, Verification)

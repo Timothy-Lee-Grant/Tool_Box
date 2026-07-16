@@ -27,7 +27,26 @@ public class OutputLimiterTests
 
         Assert.StartsWith(new string('a', 100), result, StringComparison.Ordinal);
         Assert.Contains("truncated", result, StringComparison.OrdinalIgnoreCase);
-        Assert.True(result.Length < text.Length, "truncated result should be shorter than the original");
+
+        // The actual contract: KEPT CONTENT is cut to exactly the budget.
+        // (Not "result is shorter than the original" — when the omitted tail is
+        // smaller than the honesty marker, the result can legitimately be longer.
+        // CI caught that mistaken assertion; see plan 001 Stage 4, 2026-07-16.)
+        Assert.Equal(100, result.IndexOf('\n'));
+    }
+
+    [Fact]
+    public void Result_IsAlwaysBounded_EvenForHugeInput()
+    {
+        // The discipline the limiter actually guarantees: total output is at most
+        // the budget plus a small constant marker overhead — never proportional
+        // to the input. This is the assertion that protects the context window.
+        string text = new('a', 500_000);
+
+        string result = OutputLimiter.Limit(text, maxChars: 100);
+
+        const int markerAllowance = 100; // generous; real marker is ~80 chars
+        Assert.InRange(result.Length, 100, 100 + markerAllowance);
     }
 
     [Fact]

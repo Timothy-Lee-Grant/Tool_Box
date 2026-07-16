@@ -13,9 +13,15 @@ public static class OutputLimiter
     public const int DefaultMaxChars = 20_000;
 
     /// <summary>
-    /// Returns <paramref name="text"/> unchanged if it fits the budget; otherwise cuts it
-    /// and appends an honest marker stating exactly how much was omitted. Never lies by
-    /// silently dropping content.
+    /// Returns <paramref name="text"/> unchanged if it fits the budget; otherwise cuts the
+    /// kept content to <paramref name="maxChars"/> and appends an honest marker stating
+    /// exactly how much was omitted. Never lies by silently dropping content.
+    ///
+    /// Contract: the KEPT CONTENT is bounded by the budget; the marker is a small constant
+    /// overhead (~80 chars) on top. Total output is therefore always ≤ maxChars + marker —
+    /// bounded, but for small overages it can exceed the original text's length. That is
+    /// intentional: honesty costs a few characters, and the guarantee that matters is
+    /// "never proportional to input size".
     /// </summary>
     public static string Limit(string text, int maxChars = DefaultMaxChars)
     {
