@@ -240,6 +240,18 @@ Diagnosis procedure (Timothy's machine, from repo root):
 
 Lesson for the record: "my code is clean" is not the same as "the process's stdout is clean" — the launcher is part of the process. For real client registration (Step 7) we'll prefer a launch command with no build step in it.
 
+**[2026-07-16, AI — Step 3 resolution]**
+
+Root cause confirmed: the .NET 10 runtime was not installed on the machine. The .NET 11 preview SDK can *compile* a net10.0 target, but cannot *run* the resulting binary — that requires the net10.0 runtime to be present separately. Timothy installed the .NET 10 SDK (10.0.302) and runtime (10.0.10), which resolved the failure.
+
+Verification results post-install:
+
+- `dotnet build` — succeeded, 0 warnings, 0 errors. The NETSDK1057 messages ("you are using a preview version of .NET") are classified as `message` not `warning`, so they do not trigger `TreatWarningsAsErrors`. Safe to ignore.
+- Stdout purity test (`dotnet run --project src/ToolBox.Host 2>/dev/null`) — no output, confirming the process is fully stdout-silent. `UseStderrOnly()` is working correctly.
+- `dotnet test` — 1 passed (Core.Tests placeholder), 0 failed. Basics.Tests has no test methods yet (expected at this stage; Step 5 fills it).
+
+Step 3 checkpoint is met. **Permission requested for Step 4 (Basics toolset).**
+
 ---
 
 # Stage 5 (Final Results, Testing, Verification)
