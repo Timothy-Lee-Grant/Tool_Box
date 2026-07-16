@@ -2,4 +2,11 @@
 
   <!-- Shared settings (TFM, nullable, warnings-as-errors) come from Directory.Build.props -->
 
+  <ItemGroup>
+    <!-- DI + logging abstractions only. Core deliberately has NO MCP/protocol dependency:
+         toolsets and plumbing must stay ignorant of the transport (plan 001 boundary rule). -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.10" />
+  </ItemGroup>
+
 </Project>

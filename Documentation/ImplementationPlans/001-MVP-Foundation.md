@@ -175,6 +175,27 @@ Deviations & flags:
 
 State: scaffolding complete, build unverified. **Awaiting: build confirmation + permission for Step 2 (ToolBox.Core).**
 
+**[2026-07-16, Timothy]** Build confirmed green. Permission granted for Step 2.
+
+**[2026-07-16, AI — Step 2: ToolBox.Core]**
+
+Created (all under `src/ToolBox.Core/`):
+
+- `OutputLimiter.cs` — static `Limit(text, maxChars)`, default budget 20,000 chars. Appends an honest marker with the exact omitted count; refuses to cut a surrogate pair in half. Edge cases documented for Step 5's tests.
+- `ToolsetDescriptor.cs` — a toolset's identity card (`Name`, `Description`).
+- `ServerInfo.cs` / `ServerInfoProvider.cs` — version, loaded toolset names, uptime.
+- `DependencyInjection/ServiceCollectionExtensions.cs` — `AddToolBoxCore()` and `AddToolsetDescriptor(name, description)`.
+- `Logging/ToolBoxLogging.cs` — `UseStderrOnly()`: clears providers, pins console logging to stderr via `LogToStandardErrorThreshold = Trace` (ADR-004).
+- csproj: added `Microsoft.Extensions.DependencyInjection.Abstractions` and `Microsoft.Extensions.Logging.Console` (both 10.0.10). **No MCP package in Core** — the checkpoint's boundary rule holds: Core and toolsets stay transport-ignorant.
+
+Design choices worth noting (interview-grade rationale):
+
+1. **`TimeProvider` instead of `DateTimeOffset.UtcNow`.** The modern .NET clock abstraction; tests inject a fake and control time. Never call the static clock in code you intend to test.
+2. **Descriptors as plain DI singletons, not a mutable registry class.** Anyone needing "what's loaded?" injects `IEnumerable<ToolsetDescriptor>`. Less machinery, no mutation, and the DI container is already the registry.
+3. **`TryAddSingleton` in `AddToolBoxCore`** — idempotent, and tests can pre-register fakes that win.
+
+State: Core code complete, compile unverified (sandbox has no SDK). **Awaiting: `dotnet build` confirmation + permission for Step 3 (Host stdio server).** Note Step 3.3's Inspector run needs Node on your machine (`npx @modelcontextprotocol/inspector`).
+
 ---
 
 # Stage 5 (Final Results, Testing, Verification)
