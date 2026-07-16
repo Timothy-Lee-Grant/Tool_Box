@@ -279,6 +279,12 @@ A self-built AI orchestration platform. Phase 1 was 100% hand-written code (AI u
 
 ---
 
+## Tool_Box (July 2026, starting)
+
+An MCP tool platform: a C#/.NET server (official ModelContextProtocol SDK, .NET 10) exposing toolsets to AI agents — Claude Desktop/Code and, over HTTP, LLM_Monitor's LangGraph tool loop. Goals: give LLM_Monitor real tools, learn packaging/cross-project consumption (dotnet tool, Docker image, NuGet), and build a portfolio-grade platform. Architecture: thin Host + Core plumbing (bounded output, audit, read/write tool tiers) + independent toolset libraries, stdio first then streamable HTTP. Plan 001 (MVP foundation: scaffolding, Basics toolset, honest CI) drafted and under staged review per the ImplementationPlans process.
+
+---
+
 # Expectations for AI Assistance
 
 When assisting me:
