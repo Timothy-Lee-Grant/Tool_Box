@@ -1,0 +1,17 @@
+<!--
+  Repo-wide build rulebook. Applies automatically to every .csproj beneath this file.
+  Individual projects should NOT repeat these properties (a csproj value would silently
+  override this file, defeating the point of central enforcement).
+-->
+<Project>
+
+  <PropertyGroup>
+    <!-- ADR-001 / Stage 2 decision 1: current LTS, supported to Nov 2028 -->
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- Professional-base rule: a warning is a bug we haven't admitted to yet -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+</Project>

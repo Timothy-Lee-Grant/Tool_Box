@@ -17,7 +17,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\ToolBox.Core\ToolBox.Core.csproj" />
+    <ProjectReference Include="..\..\src\ToolSets\ToolBox.Basics\ToolBox.Basics.csproj" />
   </ItemGroup>
 
 </Project>

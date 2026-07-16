@@ -1,3 +1,33 @@
-Just a brainstorm of what this project might be. 
+# Tool_Box
 
-This project will be a tool set which will allow for export tools which I find might be helpful when developing my AI projects.
+An MCP server platform: a thin host that exposes independent **toolsets** to AI agents — Claude Desktop, Claude Code, and (over HTTP, later) my own agents such as [LLM_Monitor](https://github.com/Timothy-Lee-Grant/LLM_Monitor)'s LangGraph tool loop.
+
+The LLM is the brain; this project is the hands.
+
+## Architecture
+
+```
+  MCP client (Claude Desktop / Code / agent)
+        │  stdio (HTTP planned)
+        ▼
+  ToolBox.Host        thin composition root: config → toolsets → transport
+        │
+  ToolSets/*          independent capability libraries (Basics, then more)
+        │
+  ToolBox.Core        shared plumbing: bounded output, server info, logging rules
+```
+
+Design rules: toolsets never know about the protocol or each other; the host never contains domain logic; all tool output is bounded; in a stdio server **stdout belongs to the protocol** — logs go to stderr only.
+
+## Build & test
+
+Requires the .NET 10 SDK (current LTS).
+
+```
+dotnet build
+dotnet test
+```
+
+## Status
+
+Implementation plan 001 (MVP foundation) in progress — see `Documentation/ImplementationPlans/`. Current toolset: `Basics` (`ping`, `server_info`, `current_time`) — deliberately trivial; the deliverable of plan 001 is the architecture, not the tools.

@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Shared settings come from Directory.Build.props -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\ToolBox.Core\ToolBox.Core.csproj" />
+  </ItemGroup>
+
+</Project>

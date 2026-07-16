@@ -31,6 +31,28 @@ Awaiting Timothy's responses. Stage 3 below is a full draft per Timothy's reques
 
 ---
 
+Timothy's Response:
+
+
+1. Yes, I agree we should target dotnet 10
+
+3. In the 001-InitialProjectBrainstorm.md which you created, you said: 
+`Building the plugin loader before the second toolset exists. Two concrete toolsets first; abstract from evidence, not imagination.`
+Do we need to worry about this?
+
+4. Yes, I like it. Boring and basic.
+
+**[2026-07-16, AI]** On your point-3 question — no, there is no conflict, and the distinction is worth making precise because it's a general principle:
+
+- The warning was about the plugin **loader**: the *mechanism* that discovers and activates toolsets dynamically (config files, assembly scanning, `--toolsets` flags). This plan builds **zero** loader. The Host activates Basics with one explicit line: `services.AddBasicsToolset()` (Step 2.4). When a second toolset exists (plan 002/003), we'll have two real examples to generalize from.
+- The three-project **split** is a different kind of decision. Splitting is boundary enforcement — it makes it *impossible* for protocol code and domain code to tangle, and it's cheap and reversible. Abstracting (the loader) is a bet on a pattern you haven't seen twice yet — bets need evidence.
+
+Rule of thumb: *separate early, abstract late.* Folders and projects are free; frameworks are commitments.
+
+Points 2, 5, 6 stand unchallenged. Stage 2 is converged; proceeding to Stage 4 under Timothy's go-ahead (2026-07-16), Step 1 first.
+
+---
+
 # Stage 3 (Implementation Planning)
 
 ## Scope
@@ -131,7 +153,27 @@ Each step ends at a verifiable checkpoint and waits for Timothy's permission bef
 
 # Stage 4 (Implementation)
 
-*(Begins after Stage 3 agreement. Chronological log: per-step summaries, deviations, system state.)*
+**[2026-07-16, AI — Step 1: Repository scaffolding]**
+
+Found on arrival: Timothy had already scaffolded Core, Host, and Core.Tests (via `dotnet new`, evidently), chosen a modern `.slnx` solution file, and pre-added the `ModelContextProtocol` 1.4.1 and `Microsoft.Extensions.Hosting` packages to Host (that's Step 3.1 done early — no objection). I completed the gaps rather than redoing his work.
+
+Done:
+
+- `Directory.Build.props` — net10.0, nullable, implicit usings, `TreatWarningsAsErrors`.
+- Slimmed all csprojs to remove properties now owned by Build.props. **Important mechanic:** a property set in a csproj silently *overrides* Directory.Build.props, so leaving the duplicates would have made the rulebook decorative.
+- `.editorconfig` added.
+- Created `ToolBox.Basics` (src/ToolSets/, matching Timothy's folder naming) + `ToolBox.Basics.Tests`; wired Host → Basics reference.
+- `ToolBox.slnx` updated: all five projects, `/src/ToolSets/` and `/tests/` folders.
+- README rewritten (architecture sketch, build instructions, status).
+- Deleted template `Class1.cs`; kept `UnitTest1.cs` as a placeholder until Step 5.
+
+Deviations & flags:
+
+1. **TFM changed net11.0 → net10.0.** The generated projects targeted net11.0 (a preview — Timothy's installed SDK is likely an 11 preview). Stage 2 agreed on the .NET 10 LTS. An 11-preview SDK builds net10.0 targets fine. If net11.0 was deliberate, say so and I'll revert.
+2. **Not touched:** `dockerfile` placeholder (deferred scope) and the empty `src/ToolSets/ToolBox.FindToolProject1/2` directories — Timothy, are those placeholders to keep or should they go? (Git won't track empty dirs either way.)
+3. **Verification is on Timothy's machine:** my sandbox has no .NET SDK and can't download one (network-restricted), so the checkpoint — `dotnet build` succeeding — needs you to run it. `dotnet test` should also pass (one empty placeholder test).
+
+State: scaffolding complete, build unverified. **Awaiting: build confirmation + permission for Step 2 (ToolBox.Core).**
 
 ---
 

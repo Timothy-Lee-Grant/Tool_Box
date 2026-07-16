@@ -3,4 +3,11 @@
     <Project Path="src/ToolBox.Core/ToolBox.Core.csproj" />
     <Project Path="src/ToolBox.Host/ToolBox.Host.csproj" />
   </Folder>
+  <Folder Name="/src/ToolSets/">
+    <Project Path="src/ToolSets/ToolBox.Basics/ToolBox.Basics.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ToolBox.Core.Tests/ToolBox.Core.Tests.csproj" />
+    <Project Path="tests/ToolBox.Basics.Tests/ToolBox.Basics.Tests.csproj" />
+  </Folder>
 </Solution>
