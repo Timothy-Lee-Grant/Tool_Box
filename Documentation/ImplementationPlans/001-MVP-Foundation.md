@@ -196,6 +196,22 @@ Design choices worth noting (interview-grade rationale):
 
 State: Core code complete, compile unverified (sandbox has no SDK). **Awaiting: `dotnet build` confirmation + permission for Step 3 (Host stdio server).** Note Step 3.3's Inspector run needs Node on your machine (`npx @modelcontextprotocol/inspector`).
 
+**[2026-07-16, Timothy]** Permission granted for Step 3.
+
+**[2026-07-16, AI — Step 3: Host stdio server]**
+
+- 3.1 was already done (Timothy pre-added `ModelContextProtocol` 1.4.1 during scaffolding).
+- 3.2 `Program.cs` rewritten: `Host.CreateApplicationBuilder` → `UseStderrOnly()` (deliberately the first line, so nothing later can register a stdout logger) → `AddToolBoxCore()` → `AddMcpServer().WithStdioServerTransport()` → run. Twenty-odd lines; the composition-root diet is the point. No tools are registered yet — that is Step 4, and an empty `tools/list` response is this step's expected behavior.
+- 3.3 Verification (Timothy's machine):
+
+  ```
+  npx @modelcontextprotocol/inspector dotnet run --project src/ToolBox.Host
+  ```
+
+  Expected: Inspector opens in the browser, **Connect** succeeds (handshake completes), the Tools tab lists zero tools, and any server log lines appear in the terminal's stderr, never as protocol corruption. If connect fails with a JSON parse error, something wrote to stdout — that's ADR-004's failure signature.
+
+State: Host code complete, unverified. **Awaiting: Inspector handshake confirmation + permission for Step 4 (Basics toolset).**
+
 ---
 
 # Stage 5 (Final Results, Testing, Verification)
