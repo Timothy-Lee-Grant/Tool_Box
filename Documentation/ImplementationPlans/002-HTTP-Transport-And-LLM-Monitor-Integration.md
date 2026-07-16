@@ -1,0 +1,159 @@
+2026_07_16_16_27-(HTTP-Transport-And-LLM-Monitor-Integration)
+
+# Implementation Plan 002 — HTTP Transport & LLM_Monitor Integration
+
+Goal of this plan: give the ToolBox a second transport (streamable HTTP), a Docker deployment shape, and its first *real consumer* — LLM_Monitor's LangGraph agent loop. This is the plan where the platform stops being a demo for chat clients and becomes infrastructure another system depends on.
+
+---
+
+# Stage 1 (Design Documentation)
+
+*Goals, drafted by AI from Timothy's stated project priorities (2026-07-16) — Timothy: edit/confirm.*
+
+1. **Feed LLM_Monitor** (project goal #1): the LangGraph agent (policy check → RAG → tool loop) must be able to discover and call ToolBox tools over the compose network, in both mock and live modes.
+2. **Learn packaging** (project goal #2): this plan deliberately delivers the first rung of the packaging ladder — a proper multi-stage Docker image — and the first taste of configuration-driven behavior (transport selection), which plan 003's config-driven toolset loading will build on.
+3. **Preserve plan 001's foundation**: toolsets and Core must not change at all. If adding a transport touches a toolset, ADR-003's boundary was a lie; this plan is that boundary's first real test.
+4. Non-goals (explicitly out): authentication (documented as a risk, scheduled later), new toolsets, config-driven toolset selection, NuGet packaging, `dotnet tool` distribution.
+
+---
+
+# Stage 2 (Discussion)
+
+**[2026-07-16, AI]** Opening position — the decisions this plan turns on, with my reasoning. Push back before Stage 3 execution begins:
+
+1. **Both transports live in one Host binary, selected at startup.** `--transport stdio|http` (plus `TOOLBOX_TRANSPORT` env var for containers, plus appsettings default = stdio). Alternative rejected: a second Host project (`ToolBox.Host.Http`) — that duplicates composition and packaging for zero benefit at this stage. One binary, different modes, is also the pattern the Raspberry Pi dream requires.
+2. **`ModelContextProtocol.AspNetCore` for the HTTP path.** The official SDK's HTTP package: `AddMcpServer().WithHttpTransport()` + `app.MapMcp()`. Streamable HTTP is the current MCP standard for remote servers (SSE-based transport is its predecessor). We write zero protocol code, same as stdio.
+3. **The stderr logging rule stays global, even though HTTP mode doesn't need it.** In HTTP mode stdout is harmless (Docker captures both streams identically). Carving out a per-transport logging exception buys nothing and creates a trap for the next stdio change. Uniform rules are cheaper than clever ones. ADR-004 gets a note, not an amendment.
+4. **Security posture v1: unauthenticated, network-isolated.** Inside LLM_Monitor's compose network, the ToolBox binds `0.0.0.0` but the port is *not* published to the host except behind a dev-only compose profile (mirroring LLM_Monitor's own "lockdown is a config change" pattern — deleting one port mapping). An unauthenticated MCP server must never be exposed beyond a trusted network; this gets its own ADR so the risk is written down, not just known.
+5. **Integration tests use the SDK's own client.** The `ModelContextProtocol` package contains a *client* too. A new test project boots the HTTP host on a random localhost port and connects with the real client: list tools, expect 3; call `ping`, expect `pong`. This tests the actual wire, not a mock of it — and it runs in CI with no Docker needed.
+6. **Cross-repo boundary:** this plan changes Tool_Box and *documents* the LLM_Monitor side as a walkthrough (Step 6). The actual LLM_Monitor changes should go through that repo's own AI_Implementation_Plans process — two repos, two process trails, which is itself the professional norm.
+7. **Container healthcheck via a plain `/health` endpoint**, not an MCP call — compose healthchecks are curl-shaped, and LLM_Monitor's startup-ordering pattern (gateway waits on healthy services) can then adopt the ToolBox with one `depends_on: condition: service_healthy` line.
+
+Open questions for Timothy before/while Stage 3 executes:
+
+- Q1: Should the dev port mapping (`localhost:8081 → toolbox:8080`) exist at all, or is Inspector-in-compose enough? (I propose yes, behind a `dev` profile — you'll want Inspector against the containerized server.)
+- Q2: In LLM_Monitor, should ToolBox tools be available in **mock mode** too? (I propose yes — the tools themselves are real and cheap; only *models* are mocked in that system.)
+- Q3: Base image: `mcr.microsoft.com/dotnet/aspnet:10.0` (my proposal; ~110 MB, boring, correct) vs. Alpine/chiseled variants (smaller, more edge cases). Boring first?
+
+---
+
+# Stage 3 (Implementation Planning)
+
+## Scope
+
+**In:** transport selection, HTTP host path, `/health`, integration test project, multi-stage Dockerfile + .dockerignore + local compose file, CI docker-build step, LLM_Monitor integration walkthrough, ADRs 007–008, README/catalog updates.
+**Out:** auth, new toolsets, config-driven toolset loading, publishing images to a registry, NuGet/dotnet-tool packaging.
+
+## Definition of done
+
+1. `dotnet run --project src/ToolBox.Host -- --transport http` serves MCP at `http://localhost:8080/mcp`; Inspector connects over streamable HTTP and lists 3 tools.
+2. stdio mode still works exactly as in plan 001 (purity test still silent; Claude Desktop still connects).
+3. Integration tests: SDK client over real HTTP lists 3 tools and round-trips `ping` — green locally and in CI.
+4. `docker compose up` in Tool_Box builds the image and reports **healthy**; Inspector connects through the dev port.
+5. From LLM_Monitor's compose network, a LangGraph agent lists ToolBox tools via `langchain-mcp-adapters` and successfully calls `ping` (evidence: pytest or logged agent run).
+6. ADR-007 (dual transport) and ADR-008 (v1 security posture) recorded; README documents both transports.
+
+## Architecture after this plan
+
+```
+                  ┌──────────────── stdio ───────────────┐
+ Claude Desktop / │                                      │
+ Claude Code ─────┘        ToolBox.Host                  │
+                     ┌──────────────────────────┐        │
+                     │ TransportSelector        │◄── --transport / TOOLBOX_TRANSPORT / appsettings
+                     │   ├─ stdio path (001)    │
+                     │   └─ http path (NEW)     │
+                     │ AddToolBoxServer() ◄──── shared composition: Core + all toolsets
+                     └──────────┬───────────────┘
+                                │ streamable HTTP :8080/mcp   + /health
+              ┌─────────────────┼───────────────────┐
+              │ docker network: llm_monitor_default  │
+              │                 ▼                    │
+              │   langchain_service (Python)         │
+              │   MultiServerMCPClient ──► LangGraph │
+              │   tool loop (agent's "hands")        │
+              └──────────────────────────────────────┘
+```
+
+The critical invariant: **`src/ToolSets/**` and `src/ToolBox.Core/**` end this plan with zero diffs.** That's the measurable proof of ADR-003.
+
+## Steps
+
+Each step ends at a verifiable checkpoint and waits for Timothy's permission.
+
+### Step 1 — Extract shared composition; add transport selection
+- 1.1 New file in Host: `ToolBoxServerComposition.cs` — one extension method `AddToolBoxServer(this IServiceCollection)` containing what today lives inline in `Program.cs`: `AddToolBoxCore()` + `AddMcpServer()` + `.AddBasicsToolset()` (returning the `IMcpServerBuilder` so each path can attach its transport). *(Why: the two transport paths must share one definition of "what this server is"; duplicating the toolset list would rot immediately.)*
+- 1.2 Transport selection precedence, standard .NET config layering: command line `--transport` > env `TOOLBOX_TRANSPORT` > `appsettings.json` (`"Transport": "stdio"`). Add `appsettings.json` to Host (copy-to-output).
+- 1.3 `Program.cs` branches: `stdio` → exactly today's generic-host path; `http` → Step 2's path; unknown value → fail fast with a clear stderr message and non-zero exit (never guess a transport).
+- **Checkpoint:** stdio mode byte-for-byte behavior unchanged: purity test silent, Inspector lists 3 tools, all 22 tests green.
+
+### Step 2 — The HTTP path
+- 2.1 Add `ModelContextProtocol.AspNetCore` to Host. Host's SDK stays `Microsoft.NET.Sdk` with a `FrameworkReference` to `Microsoft.AspNetCore.App` — or switch to `Microsoft.NET.Sdk.Web`; decide by what the SDK package documents as canonical (verify against the package README at implementation time, not blog posts — ADR-001's discipline).
+- 2.2 HTTP branch: `WebApplication.CreateBuilder` → `UseStderrOnly()` (uniform rule) → `AddToolBoxServer().WithHttpTransport()` → `app.MapMcp("/mcp")` → `app.MapGet("/health", …)` returning `{ status: "ok", toolsets: [...] }` from `ServerInfoProvider` → listen on `ASPNETCORE_URLS` (default `http://localhost:8080` outside containers; compose sets `http://0.0.0.0:8080`).
+- 2.3 Manual verification: `--transport http`, then Inspector with transport "Streamable HTTP" → `http://localhost:8080/mcp` → 3 tools, all callable; `curl localhost:8080/health` → ok.
+- **Checkpoint:** both transports verified by hand; zero diffs under `src/ToolSets/` and `src/ToolBox.Core/`.
+
+### Step 3 — Integration tests (`tests/ToolBox.Host.Tests`)
+- 3.1 New xunit project referencing Host + the SDK's client types.
+- 3.2 Fixture: start the HTTP host on port 0 (ephemeral), capture the bound URL, tear down cleanly (`IAsyncLifetime`).
+- 3.3 Tests: client connects + handshake succeeds; `tools/list` returns exactly `ping`, `server_info`, `current_time`; `ping("integration")` round-trips `"pong: integration"`; `server_info` reports `Basics`; `/health` returns 200.
+- 3.4 These join `dotnet test` — CI covers them with no workflow change.
+- *(Teaching note: this is the test-pyramid middle layer plan 001 didn't need — unit tests prove the methods, these prove the wire. The stdio transport gets no equivalent because the Inspector + purity test cover it manually; automating PTY-style stdio tests costs more than it returns right now.)*
+- **Checkpoint:** `dotnet test` green (22 unit + ~5 integration); a deliberately broken assertion fails (honesty spot-check).
+
+### Step 4 — Containerization
+- 4.1 Replace the placeholder `dockerfile` with a multi-stage `Dockerfile`:
+  - build stage: `mcr.microsoft.com/dotnet/sdk:10.0` — restore (solution-level, layer-cached), publish Host Release;
+  - runtime stage: `mcr.microsoft.com/dotnet/aspnet:10.0` (per Stage 2 Q3), non-root user, `TOOLBOX_TRANSPORT=http`, `ASPNETCORE_URLS=http://0.0.0.0:8080`, `EXPOSE 8080`, `ENTRYPOINT ["dotnet", "ToolBox.Host.dll"]`.
+- 4.2 `.dockerignore`: `bin/`, `obj/`, `.git/`, `Documentation/` — build context hygiene.
+- 4.3 `docker-compose.yml` in Tool_Box for standalone dev: service `toolbox`, healthcheck `curl -f localhost:8080/health` (interval/retries/start_period budgeted like LLM_Monitor's), dev profile publishing `8081:8080`.
+- 4.4 Verify: `docker compose up --build` → healthy; Inspector → `http://localhost:8081/mcp`.
+- **Checkpoint:** container healthy; tools callable through the published dev port; image size noted in the log (baseline for future trimming).
+
+### Step 5 — CI extension
+- 5.1 New job `docker`: `docker build .` on every push (catches Dockerfile rot), then a smoke test: run the container, poll `/health` until 200 (bounded retries), assert, tear down.
+- 5.2 No registry push yet (out of scope; that rung of the ladder comes with versioning/tagging decisions later).
+- **Checkpoint:** CI green with the new job; smoke test demonstrably runs (its log shows the health poll).
+
+### Step 6 — LLM_Monitor integration (walkthrough; executed under that repo's own process)
+- 6.1 LLM_Monitor compose gains service `toolbox` (image built from the Tool_Box repo path or a local build), on the internal network, healthchecked; `langchain_service` gets `depends_on: toolbox: condition: service_healthy`.
+- 6.2 `langchain_service` adds `langchain-mcp-adapters`; config maps `toolbox → {"transport": "streamable_http", "url": "http://toolbox:8080/mcp"}` via `MultiServerMCPClient`; `client.get_tools()` feeds the LangGraph tool node.
+- 6.3 Available in mock mode too (per Q2 proposal): the tool loop is real even when the model is fake — a mock-mode pytest can assert the agent graph *can* call `ping` end-to-end.
+- 6.4 Evidence for this plan's DoD: pytest output or an agent trace showing a ToolBox tool call crossing the compose network.
+- **Checkpoint:** DoD item 5 satisfied; both repos' documentation cross-reference each other.
+
+### Step 7 — Documentation
+- 7.1 README: "Transports" section (when stdio, when HTTP; the selection precedence), container quickstart, LLM_Monitor pointer.
+- 7.2 `docs/DECISIONS.md`: **ADR-007** (single binary, dual transport, selection precedence; rejected second-Host alternative) and **ADR-008** (v1 security: unauthenticated by design, network isolation as the control, port publication only behind dev profile, auth scheduled when first non-trusted network appears).
+- 7.3 `docs/TOOL_CATALOG.md`: note that the catalog is transport-independent (nothing else changes — that's the point).
+- 7.4 Update Learning lecture backlog: candidate topics for Lecture 002 — ASP.NET hosting model vs generic host, streamable HTTP/SSE mechanics, container networking, test fixtures with `IAsyncLifetime`.
+- **Checkpoint / plan acceptance:** full Definition of Done walked through and evidenced in Stage 5.
+
+## Risks & mitigations
+
+| Risk | Mitigation |
+|---|---|
+| SDK's HTTP API differs from my sketch (`WithHttpTransport`/`MapMcp` names, session config) | Verify against the installed package's own docs/samples at Step 2, not memory or blogs; adjust plan in Stage 3 discussion if names moved |
+| Streamable HTTP session semantics (stateful vs stateless) surprise the Python client | Integration test with the *official* client first (Step 3), `langchain-mcp-adapters` second (Step 6) — isolates "server wrong" from "client config wrong" |
+| Container can't see what host-shaped future toolsets need | Already understood (Brainstorm 001): this image is for *service-shaped* toolsets; Basics is shape-neutral. No action, but ADR-007 restates it |
+| `langchain-mcp-adapters` version drift vs LLM_Monitor's pinned LangChain | Pin in LLM_Monitor's requirements; its own CI gates the integration |
+| Unauthenticated server accidentally exposed | ADR-008 + compose dev-profile pattern; port publication is opt-in and documented as dev-only |
+| Two repos drift (image vs consumer) | Compose builds from local path during development; registry + version tags deliberately deferred until that hurts |
+
+## Stage 3 Discussion Subsection
+
+*(Chronological. Revisions to the plan above happen in-place; notable changes summarized here.)*
+
+**[2026-07-16, AI]** Initial draft posted. Where I most want Timothy's judgment: the three Stage 2 open questions (dev port, mock-mode availability, base image), whether Step 6 should wait for an LLM_Monitor-side implementation plan to be written first, and whether integration tests belong in this plan or deserve splitting out if Step 3 balloons.
+
+---
+
+# Stage 4 (Implementation)
+
+*(Begins after Stage 3 agreement. Chronological log: per-step summaries, deviations, system state.)*
+
+---
+
+# Stage 5 (Final Results, Testing, Verification)
+
+*(Evidence against the Definition of Done, item by item.)*
