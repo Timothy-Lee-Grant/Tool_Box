@@ -275,6 +275,26 @@ Verification (Timothy's machine): `dotnet build`, then Inspector against the reb
 
 State: code complete, unverified. **Awaiting: Inspector 3-tool confirmation + permission for Step 5 (tests).**
 
+**[2026-07-16, Timothy]** Permission granted for Step 5.
+
+**[2026-07-16, AI — Step 5: Tests]**
+
+17 tests across two projects; template `UnitTest1.cs` removed.
+
+`ToolBox.Core.Tests`:
+
+- `OutputLimiterTests` — under/at/over budget, marker reports the *exact* omitted count (a lying marker is worse than none), surrogate-pair safety (an emoji straddling the cut boundary is dropped whole, never halved), null/non-positive-budget guards.
+- `ServerInfoProviderTests` — includes the `TimeProvider` payoff promised in Step 2: a 5-line `TestClock` lets the test *set* the clock forward 5 minutes and assert uptime exactly. No `Thread.Sleep`, no flakiness.
+
+`ToolBox.Basics.Tests`:
+
+- `BasicsToolsTests` — tools are invoked as plain methods: no MCP server, no transport, no process. That's the boundary rule's first dividend. Covers ping echo/empty/whitespace, **oversized echo gets truncated** (proves the limiter is wired, not just discussed), server_info toolset list + clock-driven uptime, current_time against a fixed clock pinned to UTC (deterministic on any machine).
+- `DescriptionConventionTests` — reflection over `BasicsTools`: exactly 3 `[McpServerTool]` methods, and every tool *and every parameter* must carry a non-empty `[Description]`. This turns "descriptions are prompts" from a hope into a build failure.
+
+Verification (Timothy's machine): `dotnet test` — expect 17 passed, 0 failed, across both test projects. Per the plan's honesty ritual, optionally flip one assertion, watch it fail, flip it back.
+
+State: tests written, unverified. **Awaiting: test-run confirmation + permission for Step 6 (honest CI).**
+
 ---
 
 # Stage 5 (Final Results, Testing, Verification)
