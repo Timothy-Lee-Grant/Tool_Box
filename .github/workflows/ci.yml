@@ -31,3 +31,33 @@ jobs:
 
       - name: Test
         run: dotnet test --no-build --configuration Release
+
+  # Plan 002, Step 5: the image must build and BOOT on every push — a Dockerfile
+  # that only builds is untested deployment code. No registry push yet (that rung
+  # of the ladder needs versioning/tagging decisions; deliberately deferred).
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t toolbox:ci .
+
+      - name: Smoke test — container boots and reports healthy
+        run: |
+          docker run -d --name toolbox -p 8080:8080 toolbox:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8080/health; then
+              echo
+              echo "healthy after ~${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::server never became healthy"
+          docker logs toolbox
+          exit 1
+
+      - name: Teardown
+        if: always()
+        run: docker rm -f toolbox 2>/dev/null || true

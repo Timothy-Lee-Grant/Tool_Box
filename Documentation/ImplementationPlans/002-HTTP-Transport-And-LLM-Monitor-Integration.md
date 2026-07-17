@@ -279,6 +279,21 @@ Verification (Timothy's machine, Docker running):
 
 State: Step 4 files complete, unverified. Invariant holds. **Awaiting: container verification + permission for Step 5 (CI docker job).**
 
+**[2026-07-16, Timothy]** Permission granted for Step 5.
+
+**[2026-07-16, AI — Step 5: CI docker job]**
+
+- **Pre-step fix worth its own paragraph:** renamed `dockerfile` → `Dockerfile`. Timothy's macOS filesystem is case-insensitive, so the lowercase name worked locally — but GitHub's Linux runners are case-sensitive, and `docker build` looks for `Dockerfile`. This would have failed *only in CI*, the most confusing place to fail. Cross-platform rule: treat filename case as significant everywhere, because somewhere it is.
+- New `docker` job in `ci.yml`, parallel to `build-and-test`:
+  1. `docker build` on every push — a Dockerfile that isn't built in CI is untested deployment code that rots silently.
+  2. **Smoke test:** run the container, poll `/health` up to 30s, pass on first 200. On failure: emit a CI error annotation, dump `docker logs` (the evidence future-you needs), exit 1.
+  3. Teardown with `if: always()` — cleanup must run whether the test passed or not.
+- No registry push (per plan scope): that rung needs versioning/tagging decisions we haven't earned yet.
+
+Verification (Timothy): push, then check both CI jobs — `build-and-test` (27 tests) and `docker` (smoke log should show the health JSON and "healthy after ~Ns"). Paste the run link here.
+
+State: workflow updated, unverified. **Awaiting: green CI (both jobs) + permission for Step 6 (LLM_Monitor integration walkthrough).**
+
 ---
 
 # Stage 5 (Final Results, Testing, Verification)
