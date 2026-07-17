@@ -11,7 +11,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
+    <!-- Microsoft.Extensions.Hosting is NOT referenced here: the AspNetCore.App
+         framework reference below already ships it, and NU1510 (rightly) flags
+         the redundancy. Removed 2026-07-16 after restore failed under
+         warnings-as-errors — see plan 002 Stage 4. -->
     <PackageReference Include="ModelContextProtocol" Version="1.4.1" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" Version="1.4.1" />
   </ItemGroup>

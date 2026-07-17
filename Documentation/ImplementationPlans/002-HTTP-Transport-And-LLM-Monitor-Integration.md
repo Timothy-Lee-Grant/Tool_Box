@@ -217,6 +217,18 @@ Verification (Timothy's machine): `dotnet test` — expect 22 unit + 5 integrati
 
 State: Step 3 code complete, unverified. Invariant holds (`ToolSets/`, `Core/` untouched). **Awaiting: test results + permission for Step 4 (containerization).**
 
+**[2026-07-16, AI — Step 3 verification: restore failure, fixed]**
+
+`dotnet test` failed at *restore* with `NU1510` (as error, via our warnings-as-errors rule): `Microsoft.Extensions.Hosting will not be pruned — automatically available, remove the PackageReference`.
+
+Root cause: Step 2's `FrameworkReference Include="Microsoft.AspNetCore.App"` changed what the project already has. The ASP.NET Core shared framework *contains* `Microsoft.Extensions.Hosting`, so the explicit package reference (correct in plan 001, when the Host was a plain console app) became redundant. .NET 10's package-pruning analysis noticed; our rulebook escalated it from hint to blocker.
+
+Fix: deleted the `Microsoft.Extensions.Hosting` PackageReference from the Host. Nothing else changes — the same types now arrive via the framework reference.
+
+Worth keeping: (1) *a dependency change ripples — adding a framework reference redefines "already included", and yesterday's correct reference becomes today's redundancy;* (2) this is the warnings-as-errors policy doing exactly what we bought it for: forcing the codebase to state its dependencies honestly. A softer config would have carried the redundant reference forever.
+
+**Awaiting: fresh `dotnet test` run (expect 27 passed).**
+
 ---
 
 # Stage 5 (Final Results, Testing, Verification)
