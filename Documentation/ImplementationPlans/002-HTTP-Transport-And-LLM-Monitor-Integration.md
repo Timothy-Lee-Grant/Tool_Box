@@ -171,6 +171,25 @@ Verification (Timothy's machine):
 
 State: Step 1 code complete, unverified. **Awaiting: verification results + permission for Step 2 (the HTTP path).**
 
+**[2026-07-16, Timothy]** Permission granted for Step 2.
+
+**[2026-07-16, AI — Step 2: The HTTP path]**
+
+- 2.1 Host csproj: added `ModelContextProtocol.AspNetCore` 1.4.1 and a **`FrameworkReference` to `Microsoft.AspNetCore.App`** rather than switching to `Microsoft.NET.Sdk.Web`. Rationale: the Host is a console app that *opts into* the web stack for one of its modes; making it a web project would invert that identity and drag web conventions (launchSettings, wwwroot) into stdio mode.
+- 2.2 `RunHttpAsync` in `Program.cs`: `WebApplication.CreateBuilder` → `UseStderrOnly()` (uniform rule, Stage 2 decision 3) → default URL `http://localhost:8080` unless `ASPNETCORE_URLS` is set (containers will set `0.0.0.0:8080`) → `AddToolBoxServer().WithHttpTransport()` → `app.MapMcp("/mcp")` → `app.MapGet("/health", …)` returning `{status, version, toolsets, uptime}` from `ServerInfoProvider` (curl-shaped on purpose — health must be checkable by tools that never heard of MCP).
+- Note the composition payoff: the *entire* HTTP mode is one method. `AddToolBoxServer()` is identical in both paths; the diff between "local stdio server" and "network HTTP service" is the transport line, the URL, and a health endpoint.
+- **API-name risk flag (per plan risk table):** `WithHttpTransport()` and `MapMcp("/mcp")` are written from the SDK's documented pattern; if 1.4.1's actual names/signatures differ (e.g. path parameter shape), expect a compile error at exactly those two lines — adjust to the package's XML docs and record the correction here.
+
+Verification (Timothy's machine):
+
+1. `dotnet build` + `dotnet test` — green (22 passed).
+2. Regression: purity test still silent; Inspector over stdio still lists 3 tools.
+3. `dotnet run --project src/ToolBox.Host -- --transport http` → starts, logs to stderr, listens on 8080.
+4. `curl http://localhost:8080/health` → `{"status":"ok","version":…,"toolsets":["Basics"],…}`.
+5. Inspector, transport **Streamable HTTP**, URL `http://localhost:8080/mcp` → Connect → 3 tools → call each.
+
+State: Step 2 code complete, unverified. Zero diffs under `src/ToolSets/` and `src/ToolBox.Core/` — invariant still holds. **Awaiting: verification + permission for Step 3 (integration tests with the SDK client).**
+
 ---
 
 # Stage 5 (Final Results, Testing, Verification)
