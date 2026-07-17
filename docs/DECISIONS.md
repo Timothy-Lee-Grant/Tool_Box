@@ -39,3 +39,15 @@ Append-only. Each record: context → decision → consequences. Reversing a dec
 **Context:** Scaffolding defaulted to net11.0 because a .NET 11 *preview* SDK was installed. Lesson learned during Step 3: an SDK can compile a target it cannot run — executing net10.0 binaries requires the net10.0 runtime to be installed separately.
 **Decision:** Target `net10.0` (LTS, supported to Nov 2028), pinned once in `Directory.Build.props`. Projects must not set their own TFM (csproj values silently override the props file).
 **Consequences:** Stable base until 2028; CI pins `dotnet-version: 10.0.x` to match.
+
+## ADR-007 — Single binary, dual transport (2026-07-16)
+
+**Context:** Plan 002 adds streamable HTTP for containerized/remote consumers (LLM_Monitor) while stdio remains the local-client transport. A second Host project was considered.
+**Decision:** One `ToolBox.Host` binary; transport selected at startup with precedence `--transport` flag > `TOOLBOX_TRANSPORT` env > `appsettings.json` (default stdio). Shared composition lives in `AddToolBoxServer()`; each path attaches only its wire. HTTP mode runs stateless (SDK recommendation: no session affinity, simpler clients).
+**Consequences:** Toolsets/Core needed zero changes to gain a transport (measured: zero diffs in plan 002). The same binary can later run on a Raspberry Pi with a different toolset roster — deployment identity is configuration, not compilation. Cost: the Host carries ASP.NET Core via FrameworkReference even in stdio mode (accepted; shared framework, not published weight per-mode).
+
+## ADR-008 — HTTP security posture v1: unauthenticated, network-isolated (2026-07-16)
+
+**Context:** The HTTP endpoint executes tools on behalf of anyone who can reach it. v1 has no authentication.
+**Decision:** Isolation is the control, and it's layered: (1) inside consuming composes (LLM_Monitor) the service publishes **no ports** — reachable only on the internal network, and exposure is a conscious config change (the lockdown-is-a-config-change pattern); (2) Tool_Box's own dev compose publishes `8081:8080` because that file *is* the dev environment; (3) `AllowedHosts` is pinned to loopback + the compose service name per SDK guidance (DNS-rebinding defense — Kestrel doesn't validate Host headers by default); (4) all current tools are read-only.
+**Consequences:** Never deploy this endpoint beyond a trusted network segment. Authentication (HTTP auth on the transport) is scheduled for whenever the first non-trusted network appears — and must land *before* any write-classified toolset ships over HTTP.

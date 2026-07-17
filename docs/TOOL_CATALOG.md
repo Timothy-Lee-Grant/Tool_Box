@@ -16,3 +16,7 @@ Trivial connectivity and identity tools. They exist to prove the plumbing (plan 
 
 - `server_info.toolsets` reports the toolsets loaded *in this process* — with config-driven loading (plan 003) this becomes deployment-dependent.
 - `current_time` exists because models should not guess the date; its description says so explicitly.
+
+## Transport independence
+
+This catalog is identical over stdio and streamable HTTP — deliberately. Tools are defined once (plan 002 added a transport with zero toolset diffs); the wire is a deployment decision, never a capability decision. If a tool ever behaves differently per transport, that's a bug against this document.

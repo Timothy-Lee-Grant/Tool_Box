@@ -311,6 +311,22 @@ Note on scope: no LLM_Monitor files were changed from here. The walkthrough is t
 
 State: walkthrough complete. **Awaiting: Timothy's review + permission for Step 7 (documentation: README transports section, ADR-007/008, catalog note) — the final step.**
 
+**[2026-07-16, Timothy]** Permission granted for Step 7 (+ requested a conceptual Learning document for this phase).
+
+**[2026-07-16, AI — Step 7: Documentation]**
+
+- 7.1 README: architecture diagram shows both wires; new "Transports" section (selection precedence table, container quickstart); status updated; LLM_Monitor pointer.
+- 7.2 `docs/DECISIONS.md`: **ADR-007** (single binary dual transport, stateless HTTP, the second-Host alternative rejected, zero-diff consequence measured) and **ADR-008** (v1 = isolation-not-auth, layered: no-ports in consuming composes / dev port only in Tool_Box's own compose / AllowedHosts DNS-rebinding pin / read-only tools; auth required before any write toolset ships over HTTP). *Process slip logged honestly: the AI initially inserted the new ADRs above ADR-006, violating the file's own append-only rule; corrected. Append-only means append-only.*
+- 7.3 `docs/TOOL_CATALOG.md`: transport-independence note — same catalog on both wires, and per-transport behavioral differences are defined as bugs.
+- 7.4 Learning: **Lecture 002 — "One Server, Two Wires"** (`Documentation/Learning/002-…`), the conceptual companion for this phase: transports as process-relationships, streamable HTTP/backpressure/statelessness, bootstrap config layering, the full three-round debugging saga with its meta-lesson, integration-test design, Docker layer-cache choreography, the security posture, and cross-repo discipline — all grounded in this repo's files and today's actual failures.
+
+**All seven steps implemented.** Remaining to close the plan — Stage 5 evidence (Timothy):
+
+1. Container verification results (Step 4 checklist: healthy, curl, Inspector via 8081, image size).
+2. CI run link showing both jobs green (and the docker job's health-poll log).
+3. Fresh `dotnet test`: 27 green.
+4. LLM_Monitor's cross-network tool call — arrives later via that repo's own plan; link its evidence back here when it lands (DoD item 5).
+
 ---
 
 # Stage 5 (Final Results, Testing, Verification)
