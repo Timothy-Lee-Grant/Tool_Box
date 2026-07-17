@@ -229,6 +229,16 @@ Worth keeping: (1) *a dependency change ripples — adding a framework reference
 
 **Awaiting: fresh `dotnet test` run (expect 27 passed).**
 
+**[2026-07-16, AI — Step 3 verification round 2: the pre-declared API drift, resolved]**
+
+Second run: restore clean, all 22 unit tests green, but `ToolBox.Host.Tests` failed to compile — `CS0246: IMcpClient not found`. This is exactly the risk pre-declared in the Step 3 log and the plan's risk table.
+
+The diagnostic value of a *single* error: every other SDK type resolved (`SseClientTransport`, `HttpTransportMode`, `McpClientFactory`, `CallToolResult`, `TextContentBlock`). Only the interface was missing → the 1.x stable SDK exposes the concrete `McpClient` class where pre-1.0 docs showed an `IMcpClient` interface. Fix: three type references in `HttpTransportTests.cs`; nothing else touched.
+
+Worth keeping: when one name out of six fails, that's a *rename*, not a wrong package or missing reference — read the error's shape before reaching for bigger hammers. Also: declaring a risk in advance is what made this a 2-minute fix instead of a surprise; we knew exactly where the error would land.
+
+**Awaiting: fresh `dotnet test` run (expect 27 passed) + permission for Step 4 (containerization).**
+
 ---
 
 # Stage 5 (Final Results, Testing, Verification)

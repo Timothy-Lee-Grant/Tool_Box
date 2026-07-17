@@ -15,7 +15,9 @@ namespace ToolBox.Host.Tests;
 /// </summary>
 public class HttpTransportTests(HttpServerFixture fixture) : IClassFixture<HttpServerFixture>
 {
-    private async Task<IMcpClient> ConnectAsync()
+    // Was IMcpClient in pre-1.0 SDK docs; 1.4.x exposes the concrete McpClient.
+    // (Plan 002 Stage 4, 2026-07-16: the pre-declared API-drift risk, resolved.)
+    private async Task<McpClient> ConnectAsync()
     {
         var transport = new SseClientTransport(new SseClientTransportOptions
         {
@@ -34,14 +36,14 @@ public class HttpTransportTests(HttpServerFixture fixture) : IClassFixture<HttpS
     {
         // McpClientFactory.CreateAsync performs the full initialize exchange;
         // reaching this line means protocol version + capabilities negotiated.
-        await using IMcpClient client = await ConnectAsync();
+        await using McpClient client = await ConnectAsync();
         Assert.NotNull(client.ServerInfo);
     }
 
     [Fact]
     public async Task ToolsList_ExposesExactlyTheCatalog()
     {
-        await using IMcpClient client = await ConnectAsync();
+        await using McpClient client = await ConnectAsync();
 
         var tools = await client.ListToolsAsync();
 
@@ -55,7 +57,7 @@ public class HttpTransportTests(HttpServerFixture fixture) : IClassFixture<HttpS
     [Fact]
     public async Task Ping_RoundTripsThroughTheRealWire()
     {
-        await using IMcpClient client = await ConnectAsync();
+        await using McpClient client = await ConnectAsync();
 
         CallToolResult result = await client.CallToolAsync(
             "ping",
@@ -67,7 +69,7 @@ public class HttpTransportTests(HttpServerFixture fixture) : IClassFixture<HttpS
     [Fact]
     public async Task ServerInfo_ReportsTheBasicsToolset()
     {
-        await using IMcpClient client = await ConnectAsync();
+        await using McpClient client = await ConnectAsync();
 
         CallToolResult result = await client.CallToolAsync("server_info");
 
