@@ -37,7 +37,14 @@ internal static class ToolBoxHttpApp
 
         builder.Services
             .AddToolBoxServer()
-            .WithHttpTransport();
+            .WithHttpTransport(options =>
+            {
+                // SDK-recommended for servers that don't need server-to-client requests
+                // (sampling/elicitation): no in-memory session tracking, horizontal
+                // scaling without affinity, and no Mcp-Session-Id header for simpler
+                // clients to fumble. Set explicitly for forward compatibility.
+                options.Stateless = true;
+            });
 
         var app = builder.Build();
 

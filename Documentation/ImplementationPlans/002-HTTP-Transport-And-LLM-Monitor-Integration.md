@@ -239,6 +239,25 @@ Worth keeping: when one name out of six fails, that's a *rename*, not a wrong pa
 
 **Awaiting: fresh `dotnet test` run (expect 27 passed) + permission for Step 4 (containerization).**
 
+**[2026-07-16, AI — Step 3 verification round 3: guessed twice, then read the docs]**
+
+Round 2 exposed that the "single rename" diagnosis was wrong: with `McpClient` fixed, three MORE names failed (`SseClientTransport`, `SseClientTransportOptions`, `McpClientFactory`). The first run's single error had been misleading — the failing *return type* suppressed the method body's diagnostics, so the other broken names never got reported. Lesson amended: one visible error is not evidence of one actual error; a type error early in a member can mask everything downstream of it.
+
+Correct response after two failed guesses: stop guessing, read the source of truth. Verified against the SDK's official v1.4 transport documentation:
+
+- HTTP client transport is **`HttpClientTransport` + `HttpClientTransportOptions`** (`SseClientTransport` is the *legacy* SSE transport's lineage; streamable HTTP got its own type).
+- Client creation is **`McpClient.CreateAsync(transport)`** — no factory class.
+- `TransportMode = HttpTransportMode.StreamableHttp` was correct as written.
+
+Bonus from actually reading the docs — two improvements adopted:
+
+1. **`Stateless = true`** on `WithHttpTransport` (SDK-recommended for servers not needing sampling/elicitation): no session tracking, horizontal scaling without affinity, no `Mcp-Session-Id` for simpler clients to fumble — this directly retires the plan's "session semantics surprise the Python client" risk. Set explicitly for forward compatibility per the docs.
+2. Noted for Step 4/7: the docs advise configuring **`AllowedHosts`** to loopback/known names (DNS-rebinding defense) rather than `*` — added to ADR-008's scope for Step 7.
+
+Meta-lesson for the record: the plan's risk table said "verify against the installed package's docs, not memory" — and the implementation guessed from memory anyway, twice. The process knew better than the practitioner. Read the docs *first* next time; they also handed us two improvements guessing never would have.
+
+**Awaiting: fresh `dotnet test` run (expect 27 passed) + permission for Step 4 (containerization).**
+
 ---
 
 # Stage 5 (Final Results, Testing, Verification)

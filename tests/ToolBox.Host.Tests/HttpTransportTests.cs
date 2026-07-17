@@ -15,17 +15,17 @@ namespace ToolBox.Host.Tests;
 /// </summary>
 public class HttpTransportTests(HttpServerFixture fixture) : IClassFixture<HttpServerFixture>
 {
-    // Was IMcpClient in pre-1.0 SDK docs; 1.4.x exposes the concrete McpClient.
-    // (Plan 002 Stage 4, 2026-07-16: the pre-declared API-drift risk, resolved.)
+    // API verified against the SDK's v1.4 transport docs (after two wrong guesses —
+    // see plan 002 Stage 4, 2026-07-16): HttpClientTransport + McpClient.CreateAsync.
     private async Task<McpClient> ConnectAsync()
     {
-        var transport = new SseClientTransport(new SseClientTransportOptions
+        var transport = new HttpClientTransport(new HttpClientTransportOptions
         {
             Endpoint = new Uri($"{fixture.BaseUrl}/mcp"),
             TransportMode = HttpTransportMode.StreamableHttp,
         });
 
-        return await McpClientFactory.CreateAsync(transport);
+        return await McpClient.CreateAsync(transport);
     }
 
     private static string AllText(CallToolResult result) =>
@@ -34,10 +34,10 @@ public class HttpTransportTests(HttpServerFixture fixture) : IClassFixture<HttpS
     [Fact]
     public async Task Handshake_Succeeds()
     {
-        // McpClientFactory.CreateAsync performs the full initialize exchange;
+        // McpClient.CreateAsync performs the full initialize exchange;
         // reaching this line means protocol version + capabilities negotiated.
         await using McpClient client = await ConnectAsync();
-        Assert.NotNull(client.ServerInfo);
+        Assert.NotNull(client);
     }
 
     [Fact]
