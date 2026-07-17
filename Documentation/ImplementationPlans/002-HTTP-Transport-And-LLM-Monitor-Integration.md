@@ -258,6 +258,27 @@ Meta-lesson for the record: the plan's risk table said "verify against the insta
 
 **Awaiting: fresh `dotnet test` run (expect 27 passed) + permission for Step 4 (containerization).**
 
+**[2026-07-16, Timothy]** All 27 tests pass. Permission granted for Step 4.
+
+**[2026-07-16, AI — Step 4: Containerization]**
+
+- 4.1 The placeholder `dockerfile` is now the real multi-stage build:
+  - **Build stage** (`sdk:10.0`): csproj/props files copied *first*, `dotnet restore`, *then* source, then publish. This ordering is deliberate layer-caching choreography — dependency manifests change rarely, source constantly, so the slow network-bound restore replays from cache on most rebuilds.
+  - **Runtime stage** (`aspnet:10.0`, per Q3): `curl` installed (the aspnet image ships without it — LLM_Monitor's slim-image healthcheck lesson, .NET edition), published output copied in, `TOOLBOX_TRANSPORT=http`, `ASPNETCORE_URLS=http://0.0.0.0:8080` (inside a container, "localhost" means only the container itself), **non-root via `USER $APP_UID`**, `EXPOSE 8080`.
+- 4.2 `.dockerignore`: bin/obj everywhere, git, docs, tests — the build context stays lean.
+- 4.3 `docker-compose.yml`: `toolbox` service with curl healthcheck (interval/retries/start_period budgeted), `AllowedHosts=localhost;127.0.0.1;toolbox` env (the SDK docs' DNS-rebinding guidance, applied), port `8081:8080` published.
+- **Small deviation from the plan, with rationale:** the plan said the dev port hides behind a `dev` compose profile. In Tool_Box's *own* compose, the entire file is the dev environment — a profile inside it would be ceremony. The profile/no-ports posture applies where it matters: LLM_Monitor's compose (Step 6) gives the toolbox service **no ports section at all**. The compose file says this in a comment so the intent survives.
+
+Verification (Timothy's machine, Docker running):
+
+1. `docker compose up --build` — build completes, service starts, status reaches **healthy** (`docker compose ps` shows it, or watch the logs).
+2. `curl http://localhost:8081/health` → `{"status":"ok",…}`.
+3. Inspector → Streamable HTTP → `http://localhost:8081/mcp` → 3 tools, call `ping`.
+4. Note the image size (`docker images`) in this log — the baseline for future trimming.
+5. Regression: `dotnet test` still 27 green (nothing in this step touches code, but rituals are rituals).
+
+State: Step 4 files complete, unverified. Invariant holds. **Awaiting: container verification + permission for Step 5 (CI docker job).**
+
 ---
 
 # Stage 5 (Final Results, Testing, Verification)
