@@ -294,6 +294,23 @@ Verification (Timothy): push, then check both CI jobs — `build-and-test` (27 t
 
 State: workflow updated, unverified. **Awaiting: green CI (both jobs) + permission for Step 6 (LLM_Monitor integration walkthrough).**
 
+**[2026-07-16, Timothy]** Permission granted for Step 6.
+
+**[2026-07-16, AI — Step 6: LLM_Monitor integration walkthrough]**
+
+Created `docs/LLM_MONITOR_INTEGRATION.md` — the complete consumer-side recipe, designed to become the Stage 1 input for an implementation plan in *that* repo (per the cross-repo boundary, Stage 2 decision 6). Contents:
+
+- **Compose:** `toolbox` service built from the sibling checkout, healthchecked, `AllowedHosts` including the service name (without it, every request 400s — pre-documented in the troubleshooting table), `langchain_service` gains `depends_on: service_healthy` + `TOOLBOX_URL`. **Deliberately no `ports:` section** — ADR-008's lockdown posture: internal-network-only, exposure requires a conscious config change.
+- **Python:** `MultiServerMCPClient` with `streamable_http` transport reading `TOOLBOX_URL` (fail-loud, no silent default), `get_tools()` → `ToolNode` in the LangGraph loop; recommendation to expose it as a NEW registry entry (`graph-tools`) rather than editing existing pipelines — additive, per that repo's contract discipline.
+- **Mock mode:** toolbox not behind the live profile (Q2 decision) — tools are real in both modes; only models are mocked.
+- **Proof:** two pytest sketches (tool discovery set-inclusion; agent-calls-ping e2e) + an acceptance_check line.
+- **The demo moment named explicitly:** live chat asking "what time is it on the server?" — an answer the model *cannot* know without the tool, so success is unambiguous.
+- Troubleshooting table covering the five likely failure modes (AllowedHosts, network/localhost confusion, healthcheck curl, wrong path, adapter drift).
+
+Note on scope: no LLM_Monitor files were changed from here. The walkthrough is the deliverable; execution belongs to that repo's own staged process. DoD item 5 (the actual cross-network tool call) will be evidenced when that plan runs, and its results should be linked back into Stage 5 here.
+
+State: walkthrough complete. **Awaiting: Timothy's review + permission for Step 7 (documentation: README transports section, ADR-007/008, catalog note) — the final step.**
+
 ---
 
 # Stage 5 (Final Results, Testing, Verification)
