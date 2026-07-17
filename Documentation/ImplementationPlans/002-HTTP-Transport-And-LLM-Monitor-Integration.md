@@ -150,7 +150,26 @@ Each step ends at a verifiable checkpoint and waits for Timothy's permission.
 
 # Stage 4 (Implementation)
 
-*(Begins after Stage 3 agreement. Chronological log: per-step summaries, deviations, system state.)*
+**[2026-07-16, Timothy — Stage 2 resolution]** All three open questions resolved per AI's proposals: Q1 dev port yes, behind a `dev` compose profile; Q2 ToolBox tools available in LLM_Monitor mock mode; Q3 `mcr.microsoft.com/dotnet/aspnet:10.0` base image. Permission granted for Step 1.
+
+**[2026-07-16, AI — Step 1: Shared composition + transport selection]**
+
+- 1.1 `ToolBoxServerComposition.cs` — `AddToolBoxServer(this IServiceCollection)`: Core + `AddMcpServer()` + toolsets, returning `IMcpServerBuilder` so each transport path attaches its own wire. The toolset list now exists in exactly one place; if it ever appears twice, the transports are drifting.
+- 1.2 Bootstrap configuration (built *before* any host, because the transport decides which kind of host to construct): `appsettings.json` < `TOOLBOX_*` env vars < `--transport` flag — last-added-wins gives the agreed precedence. Two deliberate details: **`SetBasePath(AppContext.BaseDirectory)`**, because clients like Claude Desktop launch the DLL from an arbitrary working directory and a cwd-relative lookup would silently miss the file; and a **switch mapping** so `--transport http` binds to the `Transport` key.
+- 1.3 `Program.cs` branches: `stdio` → exactly plan 001's path (stderr-first, then transport); `http` → clear stderr message + exit code 2 ("not implemented yet, Step 2"); unknown → fail fast with the valid values listed, exit code 2. Never guess a transport.
+- csproj: `appsettings.json` copies next to the DLL.
+
+No new packages (configuration providers arrive transitively via `Microsoft.Extensions.Hosting`). Zero diffs under `src/ToolSets/` and `src/ToolBox.Core/` — the invariant holds so far.
+
+Verification (Timothy's machine):
+
+1. `dotnet build` + `dotnet test` — green, 22 passed.
+2. Purity test unchanged: `dotnet run --project src/ToolBox.Host 2>/dev/null` → prints nothing.
+3. Inspector against the rebuilt DLL → still 3 tools (stdio is the default from appsettings).
+4. `dotnet run --project src/ToolBox.Host -- --transport http` → stderr message about Step 2, exit code 2.
+5. `dotnet run --project src/ToolBox.Host -- --transport banana` → "Unknown transport" on stderr, exit code 2.
+
+State: Step 1 code complete, unverified. **Awaiting: verification results + permission for Step 2 (the HTTP path).**
 
 ---
 

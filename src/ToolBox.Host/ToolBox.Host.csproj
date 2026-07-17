@@ -15,4 +15,9 @@
     <PackageReference Include="ModelContextProtocol" Version="1.4.1" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Ships next to the DLL; the bootstrap config reads it from AppContext.BaseDirectory -->
+    <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
