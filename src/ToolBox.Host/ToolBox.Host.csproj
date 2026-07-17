@@ -28,4 +28,9 @@
     <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Integration tests boot ToolBoxHttpApp directly (plan 002, Step 3) -->
+    <InternalsVisibleTo Include="ToolBox.Host.Tests" />
+  </ItemGroup>
+
 </Project>

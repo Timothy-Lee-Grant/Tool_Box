@@ -190,6 +190,33 @@ Verification (Timothy's machine):
 
 State: Step 2 code complete, unverified. Zero diffs under `src/ToolSets/` and `src/ToolBox.Core/` — invariant still holds. **Awaiting: verification + permission for Step 3 (integration tests with the SDK client).**
 
+**[2026-07-16, Timothy]** Permission granted for Step 3.
+
+**[2026-07-16, AI — Step 3: Integration tests]**
+
+A refactor first, then the tests:
+
+- **Extracted `ToolBoxHttpApp.Build(args, overrideUrl?)`** out of `Program.cs`. Reason: the fixture must boot the *exact* app production runs — if tests assembled their own copy of the composition, they'd be testing the copy. `Program.cs`'s http case is now one line. `overrideUrl` lets tests pass `http://127.0.0.1:0` (port 0 = OS-assigned free port, so parallel CI runs can't collide).
+- Host csproj: `InternalsVisibleTo → ToolBox.Host.Tests` (the app builder stays `internal`; tests are the one sanctioned outsider).
+
+New project `tests/ToolBox.Host.Tests` (added to slnx):
+
+- `HttpServerFixture` (`IAsyncLifetime` + `IClassFixture`): starts the real app on an ephemeral port once per test class, reads the *resolved* URL from `app.Urls` after `StartAsync`, tears down deterministically.
+- `HttpTransportTests` — five tests over the real wire using the SDK's own client (`McpClientFactory` + streamable-HTTP client transport):
+  1. `Handshake_Succeeds` — reaching the assertion means initialize/capabilities negotiated.
+  2. `ToolsList_ExposesExactlyTheCatalog` — **set-equality** on tool names, not `Contains`: a tool disappearing and an unexpected tool appearing are both contract breaks.
+  3. `Ping_RoundTripsThroughTheRealWire` — argument serialization → schema binding → execution → content blocks, end to end.
+  4. `ServerInfo_ReportsTheBasicsToolset`.
+  5. `Health_IsCurlShaped` — plain `HttpClient`, deliberately no MCP: probes must work without the protocol.
+
+CI needs no change — the new project joins `dotnet test` automatically.
+
+**API-name risk, called in advance:** the client-side transport types (`SseClientTransport` + `TransportMode = StreamableHttp`) follow the SDK's documented 1.4.x pattern; if the names moved, the compile error lands in `HttpTransportTests.ConnectAsync` and the fix is the package's XML docs. Record any correction here.
+
+Verification (Timothy's machine): `dotnet test` — expect 22 unit + 5 integration = 27 passed (integration tests take a few seconds; Kestrel actually starts). Then the honesty spot-check from the plan: break one integration assertion, watch it fail, revert.
+
+State: Step 3 code complete, unverified. Invariant holds (`ToolSets/`, `Core/` untouched). **Awaiting: test results + permission for Step 4 (containerization).**
+
 ---
 
 # Stage 5 (Final Results, Testing, Verification)
