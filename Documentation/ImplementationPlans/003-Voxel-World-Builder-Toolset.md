@@ -140,3 +140,133 @@ The agent only ever talks to `VoxelTools`. The viewer only ever talks to the Web
 - **Q5 confirm LLM_Monitor container transport.** Can you confirm the compose service builds Tool_Box for HTTP transport, not stdio, so the stdio-cleanliness question in 2.7 is fully closed?
 
 Once these are confirmed, Stage 3 (concrete step-by-step build plan) gets drafted — same process plans 001 and 002 followed.
+
+**[2026-07-21, Timothy]** Confirmed all five updated open questions as proposed. Proceeding to Stage 3.
+
+---
+
+# Stage 3 (Implementation Planning)
+
+## Scope
+
+**In:** `ToolBox.Voxel` toolset project (state, rasterization, tools, viewer broadcast), its test project, a static viewer page, a `.claude/skills/voxel` skill, Host wiring, catalog/ADR/README updates.
+**Out (deferred):** session-scoped multi-client state, any style skill beyond the core one (a "castle"-equivalent), config-driven viewer port, authentication for the HTTP transport (ADR-008 still governs — see Step 7.3 for what changes and what doesn't).
+
+## Definition of done
+
+1. `dotnet build`/`dotnet test` pass with zero warnings, same as every prior plan's bar.
+2. From a fresh clone: wire `AddVoxelToolset()` into the Host, connect with Claude Desktop or Code (stdio) or the Inspector, call `world_info` then `place_box` — get back a text confirmation.
+3. With the Host running (either transport) and `viewer/index.html` opened in a browser (any static file server, or `file://` directly), a `place_sphere` call renders visibly within about a second.
+4. `describe_world` reports an accurate block count and bounding box after a build.
+5. A reflection test (mirroring `DescriptionConventionTests`) enforces that every Voxel tool and parameter carries a `[Description]`.
+6. `docs/TOOL_CATALOG.md` has a Voxel section; two new ADRs record the global-state limitation and the companion-broadcast pattern; README documents how to open the viewer.
+
+## Target structure
+
+```
+Tool_Box/
+├── src/
+│   ├── ToolBox.Host/                      # +1 composition line, no other changes
+│   ├── ToolBox.Core/                      # unchanged — no Core changes needed (see note below)
+│   └── ToolSets/
+│       ├── ToolBox.Basics/                # unchanged
+│       └── ToolBox.Voxel/                 # NEW
+│           ├── ToolBox.Voxel.csproj
+│           ├── VoxelWorld.cs              # state: Dictionary, events, snapshot/bounds
+│           ├── VoxelRasterizer.cs         # pure geometry: box/sphere/cylinder/cone/tube/mirror
+│           ├── Materials.cs               # v1 fixed palette (~10–12 names)
+│           ├── VoxelTools.cs              # [McpServerToolType]
+│           ├── VoxelViewerBroadcastService.cs  # BackgroundService: HttpListener + WebSocket
+│           └── VoxelToolsetExtensions.cs  # AddVoxelToolset()
+├── viewer/                                # NEW — static page, not built/served by our code
+│   └── index.html                         # Three.js via CDN, no build step
+├── tests/
+│   └── ToolBox.Voxel.Tests/               # NEW — mirrors ToolBox.Basics.Tests shape
+├── .claude/
+│   └── skills/
+│       └── voxel/SKILL.md                 # NEW
+└── docs/ (TOOL_CATALOG.md, DECISIONS.md updated; README updated)
+```
+
+**Note on Core:** Stage 2 originally proposed "two small Core additions" (§2.1) before either toolset's code. Re-examining against the actual `ServerInfoProvider`/`ToolsetDescriptor` pattern already in Core: nothing there needs to change. `AddSingleton<VoxelWorld>()` inside `AddVoxelToolset()` is already fully expressible with the existing DI/ADR-005 convention — a toolset-local singleton needs no new Core abstraction. This is "separate early, abstract late" doing its job again: no generic "stateful toolset base" gets built until a *second* stateful toolset shows it's the right shape (same reasoning ADR-003 applied to the plugin loader, and 004 applied to itself). **Core changes: none.**
+
+## Architecture (restates Stage 2 §2.7's diagram, now as the build target)
+
+```
+Claude Desktop / Claude Code / LLM_Monitor's LangGraph agent
+        │  (stdio or HTTP — voxel toolset doesn't care which)
+        ▼
+   ToolBox.Host ── AddVoxelToolset() ──┬── VoxelWorld (singleton, plain Dictionary)
+                                        ├── VoxelTools ([McpServerTool] place_box, ...)
+                                        └── VoxelViewerBroadcastService : BackgroundService
+                                                 │  HttpListener, loopback-only,
+                                                 │  ports 8090→8093 (first free), independent
+                                                 │  of whichever port the MCP HTTP transport
+                                                 │  itself is using (8080) — no collision
+                                                 ▼
+                                     ws://127.0.0.1:809x/voxel/
+                                                 ▲
+                                     viewer/index.html (opened via `npx serve`,
+                                     `python -m http.server`, or file://)
+                                     Three.js/WebGL renders in-browser — no
+                                     server-side rendering, ever.
+```
+
+## Steps
+
+Each step ends at a verifiable checkpoint and waits for Timothy's permission before the next begins.
+
+### Step 1 — Project scaffolding
+- 1.1 Create `src/ToolSets/ToolBox.Voxel/ToolBox.Voxel.csproj` — same shape as `ToolBox.Basics.csproj` (ProjectReference to Core, `ModelContextProtocol` package reference).
+- 1.2 Create `tests/ToolBox.Voxel.Tests/ToolBox.Voxel.Tests.csproj`.
+- 1.3 Wire both into `ToolBox.sln` (same solution-folder grouping as Basics/Basics.Tests); add `ProjectReference` from `ToolBox.Host` to `ToolBox.Voxel`.
+- **Checkpoint:** `dotnet build` succeeds; no tools wired yet, nothing runtime-visible changes.
+
+### Step 2 — World state + rasterization (pure logic, no MCP yet)
+- 2.1 `VoxelWorld`: `Dictionary<(int X, int Y, int Z), string> _blocks`; methods `SetBlock`, `RemoveBlock`, `Clear`, `Snapshot()` (full block list, for the viewer's on-connect sync), `BoundingBox()`; `event Action<VoxelEvent>? Changed` raised on every mutation.
+- 2.2 `VoxelRasterizer`: static pure functions, each returning the coordinate set for a shape — `Box`, `Sphere` (with `ry`/`rz` stretch per blockworld's ellipsoid variant), `Cylinder`, `Cone` (with `r2` for a truncated cone/frustum), `Tube` (swept along a path, radius interpolated start→end), `Mirror` (reflects existing coordinates across an axis/plane). Kept independent of `VoxelWorld` so the geometry is unit-testable with no DI, no MCP, no event wiring — same "prove the primitive" discipline as plan 001's trivial tools.
+- 2.3 Unit tests: known-shape assertions (e.g. a filled box's count equals the volume formula; a hollow box's count matches the shell formula; a sphere's count falls within a tolerance band of `4/3·π·r³`; mirroring an existing block set produces no duplicate coordinates when a plane bisects occupied space).
+- **Checkpoint:** `dotnet test` green. No `[McpServerTool]` exists yet — this step is proven correct independent of the protocol layer, deliberately, before any tool wraps it.
+
+### Step 3 — Tool layer
+- 3.1 `Materials.cs`: a fixed v1 palette of ~10–12 named materials (e.g. `stone`, `brick`, `wood`, `glass`, `gold`, `grass`, ...) — an explicit, documented reduction from blockworld's 100-item palette; expand later if a build actually needs more.
+- 3.2 `VoxelTools` (`[McpServerToolType]`), constructor takes `VoxelWorld`. Tools, in the build-order blockworld's own skill recommends (mass → structure → carve → detail):
+  - `world_info` — scale/reference-dimension text (blockworld's own justification applies verbatim: the tool signatures alone can't tell an agent whether a block is 10cm or 10m).
+  - `list_materials` — the fixed palette, joined into one string.
+  - `place_box(x1,y1,z1,x2,y2,z2,material,hollow=false)`, `place_cylinder`, `place_cone`, `place_sphere`, `place_tube(path,r_start,r_end,material)`, `mirror(axis,plane)`, `remove_box`, `place_block` (detail only), `clear`, `describe_world`.
+  - Every tool validates `material` against the fixed palette and returns a clear text error (not an exception) with a suggestion, mirroring blockworld's `checkMat`/"did you mean" pattern — cheap, and it keeps a wrong material name from silently failing.
+  - Every string return routed through `OutputLimiter.Limit(...)`, per the platform's standing discipline.
+- 3.3 **Watch item:** `place_tube`'s `path` parameter is an array of `{x,y,z}` points — the first parameter shape in this codebase that isn't a primitive. Confirm the SDK's schema generation handles `IReadOnlyList<VoxelPoint>` (a small record) correctly before relying on it elsewhere; this is this step's actual checkpoint risk, not a separate spike.
+- 3.4 `VoxelToolsetExtensions.AddVoxelToolset()` — `services.AddSingleton<VoxelWorld>()`, `AddToolsetDescriptor("Voxel", ...)`, `WithTools<VoxelTools>()`.
+- 3.5 `DescriptionConventionTests` for Voxel — copy of the Basics version, `typeof(VoxelTools)`, asserting tool count and full `[Description]` coverage.
+- **Checkpoint:** Inspector session against stdio Host with Voxel wired in (Step 7.1 pulled forward for this test only, or a throwaway local composition): `world_info`, `place_box`, `describe_world` all behave as expected.
+
+### Step 4 — Live viewer: broadcast service
+- 4.1 `VoxelViewerBroadcastService : BackgroundService` — owns a `System.Net.HttpListener` bound to loopback only (`http://127.0.0.1:{port}/voxel/`), trying ports `8090, 8091, 8092, 8093` in order (mirroring blockworld's own fallback list) — deliberately outside the MCP HTTP transport's own port (8080), since under `--transport http` both would run in the same process.
+- 4.2 On an incoming request: if `IsWebSocketRequest`, accept it, immediately send a `snapshot` message (`VoxelWorld.Snapshot()`) so a newly-opened or refreshed viewer tab syncs to current state, then track the socket. Subscribe to `VoxelWorld.Changed` once at service start; on each event, serialize a diff message and send it to every open socket, pruning any that are closed.
+- 4.3 Register with `services.AddHostedService<VoxelViewerBroadcastService>()` inside `AddVoxelToolset()`. This is the step that actually proves Stage 2 §2.7's claim: both `Program.cs` paths (`Host.CreateApplicationBuilder` for stdio, `WebApplication.CreateBuilder` for HTTP) build on `Microsoft.Extensions.Hosting`'s common `IHost`, so one `BackgroundService` registration works unmodified under either transport — a toolset really can carry its own companion infrastructure, transport-agnostically.
+- **Checkpoint:** start the Host under stdio; connect to `ws://127.0.0.1:8090/voxel/` with any WebSocket client (`wscat`, a browser console) and confirm a `snapshot` arrives; call `place_box` via Inspector; confirm the same socket receives a diff. Repeat once under `--transport http` to confirm no port collision with `:8080`.
+
+### Step 5 — Static viewer page
+- 5.1 `viewer/index.html` — Three.js via CDN `<script>` tag (no build step, matching blockworld's own approach exactly), hardcoding `ws://127.0.0.1:8090/voxel/`, rendering instanced cubes with basic orbit/zoom camera controls. No C# serves this file; it's opened via `npx serve viewer`, `python -m http.server` from inside `viewer/`, or `file://` directly.
+- **Checkpoint:** with the Host running and a build in progress, `place_sphere` renders visibly within about a second of the tool call returning.
+
+### Step 6 — Skill
+- 6.1 `.claude/skills/voxel/SKILL.md` — frontmatter `name: voxel`, one-line `description`. Content modeled directly on blockworld's core skill: call `world_info` first and build in blocks (never assume a metric scale), the materials/primitive cheat sheet, a call-budget guideline, and build order (mass → structure → carve → detail).
+- **Checkpoint:** read-through only — no code, but review it the way a `[Description]` gets reviewed: as a prompt, not documentation.
+
+### Step 7 — Host wiring + docs
+- 7.1 One line in `ToolBoxServerComposition.cs`: `.AddVoxelToolset()`.
+- 7.2 `docs/TOOL_CATALOG.md`: new "Toolset: Voxel" section, tools table with read/write classification. **Note:** this is the first **write**-classified toolset in the catalog (`place_*`, `remove_box`, `mirror`, `clear` all mutate); `world_info`/`list_materials`/`describe_world` stay **read**.
+- 7.3 ADR-008 said, as one of four mitigating factors for the unauthenticated HTTP posture, "all current tools are read-only" — that becomes false the moment this toolset ships over HTTP. Rather than silently letting that sentence go stale, write a short superseding note on ADR-008 (or a new ADR-011) stating explicitly: the mitigating control for write tools is still isolation (no published ports outside a trusted compose network, per ADR-008's items 1–3), *not* read-only-ness; that assumption is retired as of this toolset. This is a real judgment call worth Timothy's eyes before it ships over HTTP, not something to wave through.
+- 7.4 New ADR-009: global/singleton world state is a documented v1 limitation (one world, no session scoping), superseded whenever multi-client demos need otherwise.
+- 7.5 New ADR-010: toolsets may register companion `IHostedService`s independent of transport (generalizes ADR-005); the voxel viewer broadcaster is the first example.
+- 7.6 README: mention the Voxel toolset and how to open the viewer.
+- **Checkpoint:** fresh clone, `dotnet build`/`dotnet test` clean; Claude Desktop or Code drives a live build with the viewer open.
+
+### Step 8 — Demo pass
+- 8.1 Run a real build prompt (e.g. "build me a castle") through Claude Code with the viewer open; capture a screenshot or short recording for the portfolio.
+- 8.2 Optionally repeat through LLM_Monitor's LangGraph agent (per plan 002's integration — no Tool_Box code changes required) for the "my agent, my tools, my infrastructure, end to end" tie-in from the original brainstorm.
+- **Checkpoint:** none code-based — this step is the payoff, not a gate.
+
+Steps 1–3 have no dependency on 4–6 and could be built and demoed (via Inspector, text-only) before the viewer exists at all — worth keeping in mind if time runs short between sessions: a working, tested toolset with no visible viewer is still a genuine checkpoint, not a stall.
