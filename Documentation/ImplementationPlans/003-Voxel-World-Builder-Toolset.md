@@ -1,0 +1,142 @@
+2026_07_19_10_00-(Voxel-World-Builder-Toolset)
+
+# Implementation Plan 003 — Voxel World Builder Toolset
+
+Goal of this plan: give Tool_Box its first **stateful, live-rendered** toolset — a voxel world an agent builds in, viewable in real time in a browser. Where plans 001–002 built the platform and proved it could carry a transport, this plan proves it can carry *domain state* — a capability every future creative/visual toolset will also need.
+
+*(Note: this plan originally also covered a SPICE circuit-design toolset. Split out to `004-SPICE-Circuit-Designer-Toolset.md` on 2026-07-20 — see the Stage 2 discussion below for why. This document is voxel-only from here on.)*
+
+---
+
+# Stage 1 (Design Documentation)
+
+*Timothy's goals, as stated 2026-07-19:*
+
+**The Category A idea from `Documentation/Brainstorms/003-TOOLSET_IDEAS.md`** — "Creative & Visual (the demo stars)." Timothy specifically called out this category as the one that "provides a good amount of ability to showcase something visual which will impress an interviewer and be easy to demonstrate and display."
+
+Timothy asked for an in-depth document covering how to accomplish it, its feasibility, and how it fits within the existing project architecture.
+
+---
+
+# Stage 2 (Discussion)
+
+**[2026-07-19, AI]** Opening position (originally written alongside a SPICE toolset section, now trimmed to voxel-only — see the 2026-07-20 entry below for the corrections that followed).
+
+## 2.1 The one thing this toolset needs that Basics never did
+
+Every toolset shipped so far (`Basics`) is **stateless**: each tool call is a pure function of its arguments plus ambient server info (`ServerInfoProvider`, `TimeProvider`). The voxel world breaks that: it persists across `place_box`, `mirror`, `clear`, etc. `ping`/`current_time`/`server_info` never needed to remember anything between calls; this toolset's whole point is that it does.
+
+That gap belongs at the **Core** layer as a pattern other future stateful toolsets can reuse, the same reasoning that put `OutputLimiter` and `ToolsetDescriptor` in Core rather than in Basics (ADR-003, ADR-005) — not a one-off hack inside the voxel toolset.
+
+### 2.1.1 A stateful-toolset pattern
+
+Register world state the same way `ServerInfoProvider` is registered today — as a singleton service the toolset's tool class takes in its constructor:
+
+```csharp
+// Core/DependencyInjection convention, generalized from ADR-005:
+public static IMcpServerBuilder AddVoxelToolset(this IMcpServerBuilder builder)
+{
+    builder.Services.AddSingleton<VoxelWorld>();   // <-- new: stateful singleton
+    builder.Services.AddToolsetDescriptor(name: "Voxel", description: "...");
+    return builder.WithTools<VoxelTools>();
+}
+```
+
+This is the simple answer, and section 2.7 below (2026-07-20) confirms it's also the *proven* answer — see the note on how a working reference implementation handles this identically. One global world, shared by every connected client, is fine for stdio (one client, one process) and is an explicit, documented simplification for HTTP (where two simultaneous agents would edit the same world). Deferred rather than solved now: session-scoped state, per "abstract from evidence, not imagination" (the same principle ADR-003's discussion applied to the plugin loader).
+
+## 2.2 What it is
+
+From the brainstorm (A1): tools that describe *form*, not coordinates — `place_box`, `place_cylinder`, `place_cone`, `place_sphere`, `place_tube`, `mirror`, `remove_box`, `describe_world`, `clear`, `world_info` — plus a browser viewer that renders the world live as the agent works.
+
+## 2.3 Data model
+
+A voxel world is a sparse 3D grid. Dense arrays don't scale to anything interesting (a 200×200×200 world is 8M cells for what might be a few thousand occupied blocks):
+
+```csharp
+public sealed class VoxelWorld
+{
+    // Sparse: only occupied cells are stored.
+    private readonly Dictionary<(int X, int Y, int Z), string> _blocks = new();
+
+    public event Action<WorldEvent>? Changed;   // the viewer's broadcast hook
+    ...
+}
+```
+
+*(2026-07-20 correction: originally specified as `ConcurrentDictionary` "for safety." Walked back to a plain `Dictionary` — see 2.7. A single active session processes tool calls one at a time; there's no concurrent writer to protect against yet.)*
+
+## 2.4 Server-side rasterization (the actual interesting logic)
+
+This is the part of the brainstorm worth taking seriously: `place_sphere(center, radius, block_type)` must expand into the *set* of voxel coordinates inside that sphere. These are standard, well-documented algorithms — not research:
+
+- **Box**: trivial triple loop over the bounding coordinates.
+- **Sphere**: iterate the bounding cube, keep points where `dx²+dy²+dz² ≤ r²` (or a boundary-only variant for a hollow shell).
+- **Cylinder/cone**: iterate by height layer; at each layer, rasterize a 2D circle (Bresenham's midpoint circle algorithm, extended to filled or hollow) with a radius that's constant (cylinder) or interpolated (cone).
+- **Tube**: swept spheres/circles along a path, radius interpolated along the path — the primitive for organic, curved forms.
+- **Mirror**: reflect existing world coordinates across an axis/plane — a coordinate transform over the block set, no new geometry math.
+
+None of this requires a library; it's a few hundred lines of integer math, and it is exactly the kind of "prove you understand the primitive before reaching for a package" exercise that fits the learning goal of this project.
+
+## 2.5 The live viewer — where does it actually live?
+
+*(2026-07-20: this section's original two options are superseded by 2.7 below, which found a concrete, simpler precedent. Kept here for the record of how the thinking evolved; skip to 2.7 for the current answer.)*
+
+Original framing: the viewer needs (a) a way to serve an HTML/Three.js page, and (b) a WebSocket the page can subscribe to for world-diff pushes, and the open question was whether that infrastructure should ride on the MCP HTTP transport (only exists in HTTP mode) or live independently as companion infrastructure the toolset brings itself (works under any transport). The recommendation was the latter — confirmed correct by 2.7, though "companion infrastructure" turned out to mean something much lighter-weight than a second Kestrel instance.
+
+## 2.6 Effort and the LLM_Monitor tie-in
+
+Brainstorm estimate: Medium (1–3 weeks). Rough breakdown: state model + rasterization math (S), tool layer + descriptions (S), viewer broadcast + static page (S–M, see 2.7 — lighter than originally scoped), Three.js frontend (S if kept to instanced cubes, no textures/lighting fanciness).
+
+The brainstorm's "twist" — routing this through LLM_Monitor's own LangGraph agent, not just Claude Desktop — costs **nothing extra** given plan 002's work: LLM_Monitor already consumes any Tool_Box toolset generically via `langchain-mcp-adapters` (`docs/LLM_MONITOR_INTEGRATION.md`). Once `AddVoxelToolset()` is wired into the Host's composition, "my agent, my tools, my infrastructure, end to end" is just running a "build me a castle" prompt through LLM_Monitor and pointing a browser at the viewer.
+
+---
+
+## 2.7 [2026-07-20] Grounding the design in a real reference implementation
+
+**[2026-07-20, Timothy]** Raised several questions before committing to the above: whether the design was over-complicated relative to a known-working example (`techleadhd/blockworld` on GitHub, which the brainstorm's A1 idea was itself inspired by); whether that project's use of Claude Code Skills was worth adopting here too; whether the viewer needs its own Docker container or a build script to start everything; a suspicion that the AI in that project is only ever responsible for placement, with the viewer entirely decoupled — and a question about how the LLM would then ever learn the world's current state; a concern about stdio cleanliness now that Timothy's LLM_Monitor project is building this repo's Dockerfile directly into its own compose network; and a proposal to split this plan in two, since bundling voxel and SPICE together had been driven by a "let's build in scalability" instinct rather than the toolsets actually being related.
+
+**[2026-07-20, AI]** Cloned and read `blockworld` (`server.js`, `viewer/index.html`, `package.json`, `.claude/skills/**`) rather than answer from memory. Findings, and what they change here:
+
+**State (confirms 2.1.1, simplifies 2.3).** The reference implementation's entire world state is one line — `const blocks = new Map()` — a plain, non-thread-safe, in-process map. No database, no persistence, no session scoping. It survives only as long as the server process runs. This is the same singleton pattern already proposed above; the only correction is dropping `ConcurrentDictionary` in 2.3 in favor of a plain `Dictionary`, since the reference implementation didn't need thread-safety machinery either — a single MCP session processes tool calls serially, so there is no concurrent writer to protect against. Matches this project's own "don't add validation/robustness for scenarios that can't happen" discipline.
+
+**Skills — adopt them.** The reference project ships `.claude/skills/blockworld/SKILL.md` plus two "style" skills (`castle`, `dragon`). This is the same Claude Code Skills mechanism already available in this environment (`.claude/skills/*/SKILL.md`, `name`/`description` frontmatter) — not a separate integration to design, just an artifact to write. Its core skill teaches scale discipline (call `world_info` first; the tool signatures alone can't tell the agent whether a block is 10cm or 10m), a materials/primitive cheat sheet, and a hard budget ("150–400 tool calls; if you're looping `place_block` more than ~30 times, you reached for the wrong primitive"). **Decision: Tool_Box's voxel toolset ships a `.claude/skills/voxel/SKILL.md` alongside the tools**, written the same way — this is cheap, and it's real prompt-engineering-as-a-shipped-artifact rather than an afterthought.
+
+**No Docker, no build script — rendering is client-side.** This was the main place the original design overreached. The reference implementation has zero containers. It's two plain OS processes: (1) the MCP server, spawned directly by the AI client via stdio exactly like Tool_Box's Host is today, which *also* opens a raw WebSocket listener on `:8080` in the same process purely to broadcast state diffs; (2) the viewer, which is `npx serve .` — a generic static-file server with no application logic — serving a page that hardcodes `ws://localhost:8080` and does all rendering itself via Three.js/WebGL in the browser. **No process ever renders a pixel server-side; a browser tab does, via the GPU.** For Tool_Box: no container is needed for the voxel toolset's local/demo path at all. Docker stays scoped to what plan 002 actually built it for — the HTTP-transport path for LLM_Monitor consumption — entirely orthogonal to this toolset's viewer.
+
+This also resolves 2.5 concretely: the WebSocket broadcast starts **inside the Host process itself**, the moment the voxel toolset registers — not a second Kestrel instance (as originally proposed), just a `System.Net.HttpListener` with `AcceptWebSocketAsync` (built into the BCL, no new package, mirroring the reference project's one small dependency, `ws`). The static viewer page doesn't need C# code to serve it either — point `npx serve`, Python's `http.server`, or even a browser's `file://` directly at it, exactly as the reference project does. Lighter than the "companion `IHostedService` running its own Kestrel" design in the original 2.5 — same principle (works under any transport), less machinery.
+
+**The LLM never sees the viewer — confirmed, and it simplifies scope.** Timothy's suspicion was exactly right. The WebSocket/viewer channel is one-directional, server → browser, for human eyes only. The agent's only channel back is the plain-text return value of each tool call — `place_box` returns `"placed 42 stone"`; `describe_world` returns a block count and bounding box as a string. No image content, no vision loop, ever. Concretely, this means the original document's "Spike 1 — rich content from `[McpServerTool]`" is **not needed for this toolset** — that spike only matters for a future toolset that needs to return images (e.g., SPICE's schematic/waveform exports, or a hypothetical vision-critique toolset). Removed from this plan's scope.
+
+**stdio cleanliness and the LLM_Monitor container — not a risk, if HTTP transport is what's actually wired up.** The stdout-purity rule (ADR-004) is scoped to the stdio transport specifically — it's about a literal shared pipe between a parent process and a spawned child's stdin/stdout. Plan 002's HTTP transport exists precisely so container-to-container consumption doesn't need that pipe: LLM_Monitor's LangGraph service talks to Tool_Box's container over a normal HTTP socket (`langchain-mcp-adapters`), and Docker's own log capture of a container's stdout (for `docker logs`) doesn't corrupt anything regardless of how noisy it is. **Action for Timothy:** confirm the compose service is running Tool_Box in HTTP mode (`TOOLBOX_TRANSPORT=http` or the container default) rather than attempting stdio across the container boundary (unusual, would need something like `docker exec -i`) — if it's HTTP, LLM_Monitor's own stdout hygiene is irrelevant to this integration.
+
+**Splitting the plan — done.** Agreed the SPICE toolset doesn't belong in the same document; it was bundled in out of a "force scalability" instinct rather than any real relationship between the two toolsets, and Timothy asked to focus on the simpler one first. SPICE material moved to `Documentation/ImplementationPlans/004-SPICE-Circuit-Designer-Toolset.md`, explicitly deferred until this plan ships.
+
+### Revised architecture (supersedes 2.5's original diagram)
+
+```
+Claude Desktop / Claude Code / LLM_Monitor's LangGraph agent
+        │  (stdio or HTTP — voxel toolset doesn't care which)
+        ▼
+   ToolBox.Host
+        │
+   AddVoxelToolset()
+     ├── VoxelWorld            (plain Dictionary, singleton, in-process)
+     ├── VoxelTools            ([McpServerTool] place_box, place_sphere, mirror, ...)
+     └── HttpListener on :8080 (started at registration; broadcasts world diffs)
+                │
+                ▼ ws://localhost:8080
+     viewer/index.html  (static file — `npx serve`, `python -m http.server`, or
+                          opened via file:// — Three.js/WebGL renders in-browser)
+```
+
+The agent only ever talks to `VoxelTools`. The viewer only ever talks to the WebSocket. Nothing bridges the two except the human looking at both.
+
+### Updated open questions for Timothy
+
+- **Q1 confirm scope.** Voxel World Builder only, per the split above — SPICE is now plan 004, revisit later.
+- **Q2 confirm state.** Global singleton `VoxelWorld`, plain `Dictionary`, documented single-active-session limitation (per 2.1.1/2.7) — OK to proceed on this basis?
+- **Q3 confirm viewer architecture.** `HttpListener`-based WebSocket broadcast inside the Host process, static viewer page served by any generic static-file tool (not our code) — OK per 2.7's revised diagram?
+- **Q4 confirm skills.** Ship `.claude/skills/voxel/SKILL.md` alongside the toolset, modeled on the reference project's skill (scale-first discipline, primitive cheat sheet, call-budget guidance) — any style skills (a "castle" or similar) wanted for v1, or tools-plus-core-skill only?
+- **Q5 confirm LLM_Monitor container transport.** Can you confirm the compose service builds Tool_Box for HTTP transport, not stdio, so the stdio-cleanliness question in 2.7 is fully closed?
+
+Once these are confirmed, Stage 3 (concrete step-by-step build plan) gets drafted — same process plans 001 and 002 followed.
