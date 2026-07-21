@@ -11,6 +11,11 @@
          registration extension. Toolsets still never touch the *transport* —
          that remains the Host's exclusive concern. -->
     <PackageReference Include="ModelContextProtocol" Version="1.4.1" />
+    <!-- BackgroundService, for the viewer broadcaster (plan 003, Step 4). Not brought
+         in transitively by ModelContextProtocol — this toolset is what needs it, so
+         this toolset references it, same "one project, one reason" discipline as
+         everything else in Directory.Build.props. -->
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.7" />
   </ItemGroup>
 
 </Project>

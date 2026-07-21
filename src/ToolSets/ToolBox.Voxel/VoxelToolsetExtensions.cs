@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using ToolBox.Core.DependencyInjection;
 
 namespace ToolBox.Voxel;
@@ -18,6 +19,13 @@ public static class VoxelToolsetExtensions
         // "note on Core"). One world, shared by whatever is currently connected; see
         // ADR-009 for why that's a documented v1 limitation, not an oversight.
         builder.Services.AddSingleton<VoxelWorld>();
+
+        // Companion infrastructure, not a tool (plan 003, Step 4): broadcasts world
+        // changes over a raw loopback WebSocket for a browser viewer. Works identically
+        // whichever transport the Host itself runs, because both Program.cs paths
+        // (Generic Host for stdio, WebApplication for HTTP) build on the same
+        // Microsoft.Extensions.Hosting IHost.
+        builder.Services.AddHostedService<VoxelViewerBroadcastService>();
 
         builder.Services.AddToolsetDescriptor(
             name: "Voxel",
