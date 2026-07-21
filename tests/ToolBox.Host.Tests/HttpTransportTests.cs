@@ -50,7 +50,12 @@ public class HttpTransportTests(HttpServerFixture fixture) : IClassFixture<HttpS
         // Set-equality, not Contains: a tool DISAPPEARING or an unexpected tool
         // APPEARING are both contract breaks worth failing on.
         Assert.Equal(
-            new[] { "current_time", "ping", "server_info" },
+            new[]
+            {
+                "clear", "current_time", "describe_world", "list_materials", "mirror",
+                "ping", "place_block", "place_box", "place_cone", "place_cylinder",
+                "place_sphere", "place_tube", "remove_box", "server_info", "world_info",
+            },
             tools.Select(t => t.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray());
     }
 

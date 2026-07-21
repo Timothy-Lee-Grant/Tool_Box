@@ -12,10 +12,12 @@ The LLM is the brain; this project is the hands.
         ▼
   ToolBox.Host        thin composition root: config → toolsets → transport
         │
-  ToolSets/*          independent capability libraries (Basics, then more)
+  ToolSets/*          independent capability libraries (Basics, Voxel, then more)
         │
   ToolBox.Core        shared plumbing: bounded output, server info, logging rules
 ```
+
+The Voxel toolset also brings its own companion infrastructure — a `BackgroundService` that broadcasts world changes over a loopback WebSocket (`:8090`, independent of and never colliding with the MCP HTTP transport's own `:8080`) to a live browser viewer. See [Voxel viewer](#voxel-viewer) below.
 
 ## Transports
 
@@ -81,6 +83,17 @@ npx @modelcontextprotocol/inspector dotnet src/ToolBox.Host/bin/Release/net10.0/
 
 Tools available: see [docs/TOOL_CATALOG.md](docs/TOOL_CATALOG.md). Rationale for design choices: [docs/DECISIONS.md](docs/DECISIONS.md).
 
+## Voxel viewer
+
+The Voxel toolset (`place_box`, `place_sphere`, `mirror`, ...) is buildable live in a browser. The viewer is a plain static page — no Tool_Box code serves it, no build step, any static-file tool works:
+
+```
+cd viewer
+npx --yes serve .        # or: python3 -m http.server 5500
+```
+
+Open the printed URL, then run the Host (any transport — the viewer's WebSocket is independent of the MCP wire) and point an agent at it. Each `place_*`/`remove_box`/`mirror`/`clear` call renders live; drag to orbit, scroll to zoom, `F`/`R`/`G`/`E` reframe/auto-rotate/grid/edges. See `.claude/skills/voxel/SKILL.md` for the conventions an agent should follow (call `world_info` first, materials, primitives, build order).
+
 ## Status
 
-Plan 001 (MVP foundation) and plan 002 (HTTP transport + containerization) implemented — see `Documentation/ImplementationPlans/`. Current toolset: `Basics` (`ping`, `server_info`, `current_time`) — deliberately trivial; the deliverable so far is the platform, not the tools. Next: LLM_Monitor consumption (via that repo's own plan), then real toolsets.
+Plan 001 (MVP foundation), plan 002 (HTTP transport + containerization), and plan 003 (Voxel world-builder toolset) implemented — see `Documentation/ImplementationPlans/`. Current toolsets: `Basics` (`ping`, `server_info`, `current_time`) and `Voxel` (a live-buildable voxel world — first stateful, first write-classified, first toolset with its own companion infrastructure). Plan 004 (SPICE circuit designer) is drafted but deferred. Next: LLM_Monitor consumption (via that repo's own plan).
