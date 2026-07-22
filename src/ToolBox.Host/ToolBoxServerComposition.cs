@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using ToolBox.Basics;
 using ToolBox.Core.DependencyInjection;
+using ToolBox.Voxel;
 
 namespace ToolBox.Host;
 
@@ -21,6 +22,9 @@ internal static class ToolBoxServerComposition
         return services
             .AddMcpServer()
             // Toolsets compose below — one line each (plan 001, ADR-005).
-            .AddBasicsToolset();
+            .AddBasicsToolset()
+            // First write-classified toolset and first with its own companion
+            // infrastructure (a viewer broadcast service) — ADR-010, ADR-011.
+            .AddVoxelToolset();
     }
 }

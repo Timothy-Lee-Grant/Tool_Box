@@ -8,6 +8,7 @@
   <ItemGroup>
     <ProjectReference Include="..\ToolBox.Core\ToolBox.Core.csproj" />
     <ProjectReference Include="..\ToolSets\ToolBox.Basics\ToolBox.Basics.csproj" />
+    <ProjectReference Include="..\ToolSets\ToolBox.Voxel\ToolBox.Voxel.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tool_Box — Voxel Viewer</title>
+<style>
+  :root {
+    --bg:   #14161a;
+    --ink:  #e8e6e0;
+    --dim:  #8a8f98;
+    --rule: #2c3038;
+    --live: #4caf7d;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+    overflow: hidden;
+  }
+  #stage { position: fixed; inset: 0; }
+  canvas { display: block; }
+
+  header {
+    position: fixed; top: 16px; left: 16px; z-index: 3; pointer-events: none;
+  }
+  h1 {
+    margin: 0; font-size: 12px; font-weight: 600;
+    letter-spacing: .3em; text-transform: uppercase;
+  }
+  .sub { margin-top: 4px; font-size: 10px; letter-spacing: .08em; color: var(--dim); }
+
+  .status {
+    position: fixed; top: 16px; right: 16px; z-index: 3;
+    display: flex; align-items: center; gap: 6px;
+    padding: 7px 11px;
+    border: 1px solid var(--rule);
+    font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--dim);
+  }
+  .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--dim); }
+  .status.live .dot { background: var(--live); }
+  .status.live .txt { color: var(--live); }
+
+  .meters {
+    position: fixed; right: 16px; bottom: 16px; z-index: 3;
+    border: 1px solid var(--rule);
+    font-size: 10px; letter-spacing: .06em;
+    display: grid; grid-template-columns: auto auto;
+  }
+  .meters div { padding: 6px 10px; border-top: 1px solid var(--rule); }
+  .meters div:nth-child(-n+2) { border-top: 0; }
+  .meters .k { color: var(--dim); text-transform: uppercase; }
+  .meters .v { text-align: right; min-width: 90px; font-variant-numeric: tabular-nums; }
+
+  .keys {
+    position: fixed; left: 16px; bottom: 16px; z-index: 3;
+    border: 1px solid var(--rule);
+    font-size: 10px; letter-spacing: .05em; color: var(--dim);
+    display: grid; grid-template-columns: auto 1fr;
+  }
+  .keys div { padding: 5px 10px; border-top: 1px solid var(--rule); }
+  .keys div:nth-child(-n+2) { border-top: 0; }
+  .keys .kb { color: var(--ink); font-weight: 600; text-align: center; }
+
+  @media (max-width: 640px) { .keys { display: none; } }
+</style>
+</head>
+<body>
+
+<div id="stage"></div>
+
+<header>
+  <h1>Tool_Box</h1>
+  <div class="sub">voxel world · agent-built · drag to orbit</div>
+</header>
+
+<div class="status" id="status">
+  <span class="dot"></span><span class="txt" id="status-txt">connecting…</span>
+</div>
+
+<div class="meters">
+  <div class="k">blocks</div><div class="v" id="m-blocks">0</div>
+  <div class="k">bounds</div><div class="v" id="m-bounds">—</div>
+</div>
+
+<div class="keys">
+  <div class="kb">drag</div><div>orbit</div>
+  <div class="kb">scroll</div><div>zoom</div>
+  <div class="kb">⇧drag</div><div>pan</div>
+  <div class="kb">F</div><div>reframe</div>
+  <div class="kb">R</div><div>auto-rotate</div>
+  <div class="kb">G</div><div>grid</div>
+  <div class="kb">E</div><div>edges</div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+}}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* ------------------------------------------------------------------ *
+ * config — no build step, no server-side involvement (plan 003 §2.7):
+ * this page only ever talks to the voxel viewer's own WebSocket. It
+ * never talks to the agent, and the agent never talks to it.
+ * ------------------------------------------------------------------ */
+
+const WS_URL = 'ws://127.0.0.1:8090/voxel/';
+const INK = 0xe8e6e0;
+
+// v1's fixed palette (ToolBox.Voxel/Materials.cs) — kept here, not shared with the
+// server, since color is a purely visual concern the tool layer never needs to know.
+const PALETTE = {
+  stone:    0x8a8d92,
+  brick:    0xa8432f,
+  wood:     0x8b5a2b,
+  glass:    0x9fd8e0,
+  gold:     0xd4af37,
+  iron:     0x71797e,
+  grass:    0x4c9a3a,
+  sand:     0xe0c68a,
+  water:    0x3b6ea5,
+  snow:     0xf5f5f5,
+  lava:     0xd94f2b,
+  obsidian: 0x1b1b22,
+};
+const TRANSLUCENT = new Set(['glass', 'water']);
+
+/* ------------------------------------------------------------------ *
+ * scene
+ * ------------------------------------------------------------------ */
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 2000);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+document.getElementById('stage').appendChild(renderer.domElement);
+
+camera.position.set(40, 30, 40);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.maxPolarAngle = Math.PI / 2 - 0.02;
+controls.minDistance = 3;
+controls.maxDistance = 600;
+controls.autoRotate = true;
+controls.autoRotateSpeed = 0.4;
+controls.target.set(0, 5, 0);
+controls.mouseButtons = {
+  LEFT: THREE.MOUSE.ROTATE,
+  MIDDLE: THREE.MOUSE.DOLLY,
+  RIGHT: THREE.MOUSE.PAN,
+};
+
+// The agent "owns" the camera (auto-framed) until a human grabs it — after that,
+// stop fighting their input.
+let userHasCamera = false;
+controls.addEventListener('start', () => {
+  controls.autoRotate = false;
+  userHasCamera = true;
+});
+
+let gridOn = true;
+const grid = new THREE.GridHelper(200, 100, 0x3a3f48, 0x24272d);
+scene.add(grid);
+
+/* ------------------------------------------------------------------ *
+ * geometry + materials — one shared cube geometry, one cached material
+ * per name, exactly like the reference implementation this is modeled
+ * on (Documentation/ImplementationPlans/003 §2.7): thousands of blocks
+ * share the same two objects, not thousands of copies of them.
+ * ------------------------------------------------------------------ */
+
+const cubeGeo = new THREE.BoxGeometry(1, 1, 1);
+const edgeGeo = new THREE.EdgesGeometry(cubeGeo);
+const edgeMat = new THREE.LineBasicMaterial({ color: INK, transparent: true, opacity: 0.4 });
+
+let edgesOn = true;
+const fillCache = new Map();
+function fillFor(material) {
+  if (!fillCache.has(material)) {
+    fillCache.set(material, new THREE.MeshLambertMaterial({
+      color: PALETTE[material] ?? 0xcccccc,
+      transparent: TRANSLUCENT.has(material),
+      opacity: TRANSLUCENT.has(material) ? 0.55 : 1,
+    }));
+  }
+  return fillCache.get(material);
+}
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x22252b, 1.1));
+const sun = new THREE.DirectionalLight(0xffffff, 0.6);
+sun.position.set(30, 50, 20);
+scene.add(sun);
+
+/* ------------------------------------------------------------------ *
+ * world — keyed index so removal/overwrite is O(1) and never touches
+ * anything else already placed.
+ * ------------------------------------------------------------------ */
+
+const world = new THREE.Group();
+scene.add(world);
+
+const index = new Map(); // "x,y,z" -> mesh
+const key = (x, y, z) => `${x},${y},${z}`;
+const box = new THREE.Box3();
+const size = new THREE.Vector3();
+const centre = new THREE.Vector3();
+
+function addBlock(x, y, z, material) {
+  const k = key(x, y, z);
+  const prev = index.get(k);
+  if (prev) world.remove(prev);
+
+  const mesh = new THREE.Mesh(cubeGeo, fillFor(material));
+  const wire = new THREE.LineSegments(edgeGeo, edgeMat);
+  wire.visible = edgesOn;
+  mesh.add(wire);
+  mesh.position.set(x, y + 0.5, z);
+
+  world.add(mesh);
+  index.set(k, mesh);
+}
+
+function removeBlock(x, y, z) {
+  const k = key(x, y, z);
+  const mesh = index.get(k);
+  if (!mesh) return;
+  world.remove(mesh);
+  index.delete(k);
+}
+
+function clearWorld() {
+  world.clear();
+  index.clear();
+  userHasCamera = false; // a new build gets auto-framed again
+}
+
+/* ------------------------------------------------------------------ *
+ * framing — snap the camera to fit the build. Runs once per change
+ * while the agent still owns the camera; not a continuous chase, so it
+ * never fights a human who has already grabbed the mouse (autoRotate
+ * covers the "looks alive while nobody's touching it" job instead).
+ * ------------------------------------------------------------------ */
+
+function frameCamera() {
+  if (!index.size) return;
+  box.setFromObject(world);
+  box.getSize(size);
+  box.getCenter(centre);
+  const distance = Math.max(size.x, size.y, size.z, 4) * 1.7 + 5;
+
+  controls.target.copy(centre);
+  if (!userHasCamera) {
+    const dir = camera.position.clone().sub(controls.target).normalize();
+    camera.position.copy(controls.target).add(dir.multiplyScalar(distance));
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * meters
+ * ------------------------------------------------------------------ */
+
+const $ = (id) => document.getElementById(id);
+
+function paint() {
+  $('m-blocks').textContent = index.size.toLocaleString();
+  if (!index.size) {
+    $('m-bounds').textContent = '—';
+    return;
+  }
+  box.setFromObject(world);
+  box.getSize(size);
+  $('m-bounds').textContent =
+    `${Math.round(size.x)}×${Math.round(size.z)}×${Math.round(size.y)}`;
+}
+
+/* ------------------------------------------------------------------ *
+ * keyboard
+ * ------------------------------------------------------------------ */
+
+addEventListener('keydown', (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  switch (e.key.toLowerCase()) {
+    case 'f':
+      userHasCamera = false;
+      frameCamera();
+      break;
+    case 'r':
+      controls.autoRotate = !controls.autoRotate;
+      break;
+    case 'g':
+      gridOn = !gridOn;
+      grid.visible = gridOn;
+      break;
+    case 'e':
+      edgesOn = !edgesOn;
+      world.traverse((o) => { if (o.isLineSegments) o.visible = edgesOn; });
+      break;
+  }
+});
+
+/* ------------------------------------------------------------------ *
+ * websocket — one-directional from the service's point of view (plan
+ * 003 §2.7: the agent never sees this channel, only the tool-call text
+ * replies). This page only receives; it never sends anything back.
+ * ------------------------------------------------------------------ */
+
+const statusEl = $('status');
+const statusTxt = $('status-txt');
+function setStatus(live, text) {
+  statusEl.classList.toggle('live', live);
+  statusTxt.textContent = text;
+}
+
+function connect() {
+  let ws;
+  try {
+    ws = new WebSocket(WS_URL);
+  } catch {
+    setStatus(false, 'offline');
+    return;
+  }
+
+  ws.onopen = () => setStatus(true, 'live');
+  ws.onclose = () => { setStatus(false, 'offline — retrying'); setTimeout(connect, 2500); };
+  ws.onerror = () => ws.close();
+
+  ws.onmessage = (event) => {
+    let message;
+    try {
+      message = JSON.parse(event.data);
+    } catch {
+      return;
+    }
+
+    switch (message.type) {
+      case 'snapshot':
+        clearWorld();
+        for (const b of message.blocks ?? []) addBlock(b.x, b.y, b.z, b.material);
+        break;
+      case 'batch':
+        for (const b of message.blocks ?? []) addBlock(b.x, b.y, b.z, b.material);
+        break;
+      case 'remove':
+        for (const b of message.blocks ?? []) removeBlock(b.x, b.y, b.z);
+        break;
+      case 'clear':
+        clearWorld();
+        break;
+    }
+
+    frameCamera();
+    paint();
+  };
+}
+connect();
+
+/* ------------------------------------------------------------------ *
+ * loop
+ * ------------------------------------------------------------------ */
+
+function tick() {
+  requestAnimationFrame(tick);
+  controls.update();
+  renderer.render(scene, camera);
+}
+requestAnimationFrame(tick);
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>
