@@ -29,7 +29,17 @@ WORKDIR /app
 # its slim Python image — its healthcheck went stdlib for this exact reason).
 # We install curl for the compose healthcheck; root is required, so this runs
 # before the USER directive below.
-RUN apt-get update \
+#
+# GitHub Actions runners are Azure-hosted, and the default Ubuntu mirrors
+# (archive.ubuntu.com / security.ubuntu.com) are intermittently unreachable from
+# there — a real, observed CI failure (every IP for both hosts timed out in one
+# actual run), not a config mistake. Point apt at Canonical's Azure-hosted mirror
+# instead, which resolves to endpoints Azure-hosted runners can actually reach;
+# the `|| true` means a non-matching sed (e.g. this file's own dev machine, which
+# uses ports.ubuntu.com) never breaks the build. Retries are kept as a second
+# line of defense regardless of which mirror ends up in use.
+RUN (sed -i 's|http://archive.ubuntu.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g; s|http://security.ubuntu.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/*.sources /etc/apt/sources.list 2>/dev/null || true) \
+    && apt-get update -o Acquire::Retries=5 \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
