@@ -7,8 +7,8 @@ The LLM is the brain; this project is the hands.
 ## Architecture
 
 ```
-  MCP client (Claude Desktop / Code / agent)
-        │  stdio (HTTP planned)
+  MCP client (Claude Desktop / Code / Inspector / LangGraph agent)
+        │  stdio  ─or─  streamable HTTP (:8080/mcp, /health)
         ▼
   ToolBox.Host        thin composition root: config → toolsets → transport
         │
@@ -16,6 +16,24 @@ The LLM is the brain; this project is the hands.
         │
   ToolBox.Core        shared plumbing: bounded output, server info, logging rules
 ```
+
+## Transports
+
+One binary, two wires. Selection precedence: `--transport` flag > `TOOLBOX_TRANSPORT` env var > `appsettings.json` (default: stdio).
+
+| Transport | Start | Use for |
+|---|---|---|
+| stdio (default) | client launches the DLL | Claude Desktop, Claude Code — local, client-as-parent |
+| streamable HTTP | `dotnet run --project src/ToolBox.Host -- --transport http` | remote/containerized consumers (LLM_Monitor); serves `/mcp` + `/health` on :8080, stateless |
+
+Container quickstart:
+
+```
+docker compose up --build        # healthy at http://localhost:8081/health
+# Inspector → Streamable HTTP → http://localhost:8081/mcp
+```
+
+Consuming from LLM_Monitor: see [docs/LLM_MONITOR_INTEGRATION.md](docs/LLM_MONITOR_INTEGRATION.md).
 
 Design rules: toolsets never know about the protocol or each other; the host never contains domain logic; all tool output is bounded; in a stdio server **stdout belongs to the protocol** — logs go to stderr only.
 
@@ -65,4 +83,4 @@ Tools available: see [docs/TOOL_CATALOG.md](docs/TOOL_CATALOG.md). Rationale for
 
 ## Status
 
-Implementation plan 001 (MVP foundation) in progress — see `Documentation/ImplementationPlans/`. Current toolset: `Basics` (`ping`, `server_info`, `current_time`) — deliberately trivial; the deliverable of plan 001 is the architecture, not the tools.
+Plan 001 (MVP foundation) and plan 002 (HTTP transport + containerization) implemented — see `Documentation/ImplementationPlans/`. Current toolset: `Basics` (`ping`, `server_info`, `current_time`) — deliberately trivial; the deliverable so far is the platform, not the tools. Next: LLM_Monitor consumption (via that repo's own plan), then real toolsets.

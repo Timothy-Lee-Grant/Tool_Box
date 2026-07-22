@@ -11,8 +11,29 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
+    <!-- Microsoft.Extensions.Hosting is NOT referenced here: the AspNetCore.App
+         framework reference below already ships it, and NU1510 (rightly) flags
+         the redundancy. Removed 2026-07-16 after restore failed under
+         warnings-as-errors — see plan 002 Stage 4. -->
     <PackageReference Include="ModelContextProtocol" Version="1.4.1" />
+    <PackageReference Include="ModelContextProtocol.AspNetCore" Version="1.4.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- ASP.NET Core for the HTTP transport path. FrameworkReference (not Sdk.Web)
+         keeps this a plain console project: stdio mode stays the default identity,
+         and we opt into the web stack rather than the reverse. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Ships next to the DLL; the bootstrap config reads it from AppContext.BaseDirectory -->
+    <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Integration tests boot ToolBoxHttpApp directly (plan 002, Step 3) -->
+    <InternalsVisibleTo Include="ToolBox.Host.Tests" />
   </ItemGroup>
 
 </Project>

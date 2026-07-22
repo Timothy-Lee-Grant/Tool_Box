@@ -1,0 +1,16 @@
+# Keep the build context lean: Docker uploads everything not listed here
+# before the build even starts.
+bin/
+obj/
+**/bin/
+**/obj/
+.git/
+.github/
+Documentation/
+docs/
+tests/
+*.md
+.vscode/
+.idea/
+.DS_Store
+docker-compose.yml

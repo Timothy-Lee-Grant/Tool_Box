@@ -1,0 +1,23 @@
+# Tool_Box standalone dev compose (plan 002, Step 4).
+# This whole file IS the dev environment, so the port publication lives here
+# openly. The production posture (ADR-008) applies to CONSUMING composes like
+# LLM_Monitor's: there, the toolbox service gets NO ports section at all —
+# reachable only on the internal network, and "lockdown is a config change".
+services:
+  toolbox:
+    build: .
+    container_name: toolbox
+    ports:
+      - "8081:8080" # host:container — Inspector connects to http://localhost:8081/mcp
+    environment:
+      # DNS-rebinding defense (SDK docs guidance, queued for ADR-008):
+      # accept only the names this server is legitimately addressed by.
+      AllowedHosts: "localhost;127.0.0.1;toolbox"
+    healthcheck:
+      # curl exists because the Dockerfile installs it — the aspnet base image
+      # ships without it (LLM_Monitor's slim-image lesson, .NET edition).
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s

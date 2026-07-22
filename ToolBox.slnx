@@ -9,5 +9,6 @@
   <Folder Name="/tests/">
     <Project Path="tests/ToolBox.Core.Tests/ToolBox.Core.Tests.csproj" />
     <Project Path="tests/ToolBox.Basics.Tests/ToolBox.Basics.Tests.csproj" />
+    <Project Path="tests/ToolBox.Host.Tests/ToolBox.Host.Tests.csproj" />
   </Folder>
 </Solution>
