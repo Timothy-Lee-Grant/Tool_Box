@@ -125,9 +125,7 @@ npx @modelcontextprotocol/inspector dotnet src/ToolBox.Host/bin/Release/net10.0/
 <p align="center"><sub>Drag to orbit, scroll to zoom, right-drag to pan. <code>F</code> reframes, <code>R</code> toggles auto-rotate, <code>G</code>/<code>E</code> toggle the grid and edges shown above.</sub></p>
 
 <p align="center">
-  <video src="docs/images/voxel_world.mp4" controls muted loop playsinline width="850">
-    Your browser does not support embedded video — see <a href="docs/images/voxel_world.mp4">docs/images/voxel_world.mp4</a>.
-  </video>
+  <img src="docs/images/voxel_world.gif" alt="The world in motion, captured live from the browser viewer as tool calls land" width="850">
 </p>
 <p align="center"><sub>The world in motion, captured live from the browser viewer as tool calls land.</sub></p>
 
