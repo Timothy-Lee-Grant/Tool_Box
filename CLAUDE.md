@@ -30,30 +30,48 @@ Documents in this folder will be for implementation plans which the AI will crea
 
 These documents will have multiple stages. Within each stage, a dynamic conversation will take place. The way it will work is that each markdown will appended in a chronological order. There will be a discussion between Timothy and the AI to communicate between each other and come to an eventually conclusion. Then the next stage will begin.
 
-## Stage 1 (Design Documentation)
+### Stage 1 (Design Documentation)
 
 Timothy outlines the goals for this implementation plan. 
 
-## Stage 2 (Discussion)
+### Stage 2 (Discussion)
 
 Stage 2 will be a dynamic conversation between Timothy and the AI agent. Discussions will take place in describing the feature desired to be implemented, potential issues, technical difficulties, architecture designs and considerations, and anything else which should be discussed.
 
-## Stage 3 (Implementation Planning)
+### Stage 3 (Implementation Planning)
 
 Stage 3 will be where the AI takes the conversation and direction described in Stage 2, and creates a full detailed implementation plan. This will be a step by step explanation as to what the AI is planning on doing, how it plans to accomplish it, and everything broken down into sub-steps. This way when we eventually reach stage 4, it will be easy for Timothy to give permission for steps at a time and verify.
 
-### Stage 3 Discussion Subsection
+#### Stage 3 Discussion Subsection
 
 This subsection will be where the dynamic conversation takes place. This will be another chronological discussion where Timothy and the AI discuss the Implementation Plan developed by the AI. 
 
 As this conversation goes back and forth, the AI will make changes to the Implementation Plan. (Notice that this means that the implementation plan will be dynamic and not a chronological timeline.)
 
-## Stage 4 (Implementation)
+### Stage 4 (Implementation)
 
 Stage 4 will begin once Stage 3 has been agreed upon. This stage will consist of Timothy giving step by step permissions for the ai to implement each of the steps which it had outlined in the Stage 3. 
 
 This will also be a chronological discussion where the AI gives a summary for each of the steps which it attempted to do. The things which were changed, any problems or unexpected issues which arose, and the state of the system at at this point.
 
-## Stage 5 (Final Results, Testing, Verficiation)
+### Stage 5 (Final Results, Testing, Verficiation)
 
 Once the implementation has been fully finished, it needs to be tested and verified. This stage will be the location for verification documentation.
+
+## ImplementationPlans (Release Plan)
+
+This document will follow the same workflow as the normal 'Implementation Plan' but the structure of the document and the purpose will be completely different. This documents purpose is to get the project ready for release.
+
+### Release Checklist
+
+Create a checklist of all items which need to be done, tested, verified, understood ect.
+
+This is also where the clean up and polish tasks can be done to ensure that the product is ready for release.
+
+### Packaging Plan
+
+The project needs to be able to be packaged after its release. We need to come up with a strategy as to how we can release this product to the public. The point of this is to actually deploy it.
+
+### Presentation
+
+Because I make YouTube vidoes, I want to do a video where I showcase the project and give a demonstration. I will then put a link to that video on my resume. In this section, outline the entirety of what I should cover and discuss in the video.
