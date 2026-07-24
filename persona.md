@@ -311,4 +311,5 @@ Of course it is good to dive deep, but I have noticed that it really slows me do
 
 # AI's Observations About Me
 
-None yet (Please fill out as you notice things)
+## Drives to first principles even for "black box" tools (2026-07-23)
+When Timothy sees a capability he can't mechanistically explain — e.g. how his voxel agent produces spatially-consistent castle/dragon builds — his instinct is not to accept it but to demand the underlying mechanism (embeddings, attention, emergent composition) AND the resulting capability boundaries. This is the same "hyperfixation on details" he flags about himself, but pointed at *conceptual* understanding rather than source code. Productive framing that works for him: give the mechanism, then explicitly derive the limits/decision-framework *from* that mechanism, so the deep-dive resolves into an actionable engineering judgment ("what is this a fit for?") rather than an open-ended rabbit hole. He explicitly values understanding capability boundaries so he can decide when AI is/ isn't the right solution — a systems-design mindset applied to ML.
