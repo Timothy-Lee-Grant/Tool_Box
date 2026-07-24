@@ -62,6 +62,8 @@ Once the implementation has been fully finished, it needs to be tested and verif
 
 This document will follow the same workflow as the normal 'Implementation Plan' but the structure of the document and the purpose will be completely different. This documents purpose is to get the project ready for release.
 
+This will be a markdown file in the same location as the other Implementation Plans and follow the same number incrementing rule, but the title will be Release-X.0 
+
 ### Release Checklist
 
 Create a checklist of all items which need to be done, tested, verified, understood ect.
