@@ -62,13 +62,13 @@ Organized as a checklist-of-checklists; Stage 3 will convert whichever items sur
 
 Three distribution shapes were named in persona.md as explicit learning goals for this project ("learn packaging/cross-project consumption: dotnet tool, Docker image, NuGet") — 1.0 is the natural point to decide which of them actually ship, since building capability without ever packaging it would leave that goal unmet.
 
-| Shape | What it means here | Status | Open question for Stage 2 |
+| Shape | What it means here | Status | Notes |
 |---|---|---|---|
-| **Docker image** | Publish the existing multi-stage image (already built and smoke-tested every CI run) to a registry (GHCR is the natural choice — same GitHub identity, no new account) | Closest to done — image already exists and works | Tag/version strategy; does `docker-compose.yml` change to reference the published image instead of `build: .`? |
-| **`dotnet tool`** | Package `ToolBox.Host` as a global/local .NET tool (`dotnet tool install`) so a stdio consumer (Claude Desktop/Code) doesn't need to clone the repo and build | Not started | Does a global tool make sense for something that's really a long-running server, or is this better framed as "the way Claude Code/Desktop launches it," i.e. closer to how other MCP servers via `npx`/`uvx` are consumed? |
-| **NuGet package** | Publish `ToolBox.Core` (and maybe the toolset interfaces) as a library so a *third* project could build its own Host against this platform's plumbing | Not started, least clearly motivated | Is there an actual consumer for this (unlike LLM_Monitor, which consumes over MCP, not as a referenced library)? If not, this may be the one packaging goal that's honestly "learned by reading the docs" rather than "shipped," and 1.0 should say that plainly rather than half-do it. |
+| **Docker image** | Publish the existing multi-stage image (already built and smoke-tested every CI run) to a registry (GHCR) | **Shipping in 1.0** — decided 2026-07-25 | The one genuine consumer (LLM_Monitor) needs this now, not eventually — see the concrete steps below. |
+| **`dotnet tool`** | Package `ToolBox.Host` as a global/local .NET tool (`dotnet tool install`) so a stdio consumer (Claude Desktop/Code) doesn't need to clone the repo and build | **Deferred past 1.0** — decided 2026-07-25 | No consumer is asking for this yet (Claude Desktop/Code both work fine off a built DLL per the README's existing quickstart), and it doesn't unblock anything the way the Docker image does. Revisit once/if a real "someone other than Timothy wants to install this without cloning" scenario shows up — same "abstract from evidence, not imagination" reasoning this project applies elsewhere (ADR-009). |
+| **NuGet package** | Publish `ToolBox.Core` (and maybe the toolset interfaces) as a library so a *third* project could build its own Host against this platform's plumbing | **Deferred past 1.0** — decided 2026-07-25 | Least motivated of the three: LLM_Monitor consumes Tool_Box over MCP, not as a referenced library, and no other consumer exists. Honest framing for 1.0's release notes: this learning goal was explored (the ADR log already demonstrates understanding of the packaging space) but not shipped, rather than half-building a package nobody pulls. |
 
-The packaging plan's job in Stage 2 is to turn "three things I said I wanted to learn" into "here's which of these this release actually does, and why" — not to force all three into 1.0 for completeness' sake.
+**Decided 2026-07-25:** of the three packaging shapes named as learning goals in persona.md, **only the Docker image ships as part of Release 1.0.** The other two are named explicitly as deferred, not abandoned — the release notes should say so plainly rather than implying they were forgotten. This follows the same instinct plan 004 (SPICE) already modeled: an honest subset shipped now beats three half-finished packaging stories, and the Docker image is the one with a real, current consumer (LLM_Monitor) actively blocked without it (see Stage 2 §Q4 below) — the other two have no equivalent pull yet.
 
 ### Docker image — no longer just a learning goal, now an active blocker (added 2026-07-25, see Stage 2 §Q4)
 
@@ -115,7 +115,7 @@ Target length and tone are open Stage 2 questions — a 5-8 minute walkthrough i
 Not yet started. Open questions carried out of Stage 1, to open the discussion:
 
 1. Release Checklist: is a LICENSE decision (portfolio-only vs. genuinely reusable) something Timothy already has an answer to, or does it need discussion here?
-2. Packaging Plan: which of Docker image / dotnet tool / NuGet actually ship in 1.0 — all three, or an honest subset with the rest named as deferred (mirroring how plan 004 was explicitly deferred rather than half-built)?
+2. ~~Packaging Plan: which of Docker image / dotnet tool / NuGet actually ship in 1.0~~ — **resolved 2026-07-25: Docker image only, see below.**
 3. Versioning: `v1.0.0` tag now, with plan 004 (SPICE) landing later as `v1.1.0`-style follow-on? Or does 004 need to ship first for "1.0" to feel earned?
 4. Presentation: video length/tone, and whether it's recorded before or after the packaging work lands (a video showing `docker pull` from a real registry is a stronger demo than one showing `git clone && dotnet build`).
 
@@ -133,4 +133,8 @@ Not yet started. Open questions carried out of Stage 1, to open the discussion:
 
 Net effect of this round: Q2 becomes a new Release Checklist item (not built yet, deliberately); Q4 turns the Packaging Plan's Docker-image row from "closest to done, tag strategy TBD" into a concrete, ordered list of steps, since it's now understood to be blocking real cross-project work rather than being a nice-to-have learning goal.
 
-Stage 3 (step-by-step implementation plan) is not drafted yet — pending Timothy's direction on the open items above (LICENSE, which packaging shapes ship, version-vs-plan-004 sequencing, presentation timing) plus the newly concrete registry-publishing steps.
+**[2026-07-25, Timothy]** For the Packaging Plan: the Docker image is the one we should do for this release.
+
+**[2026-07-25, AI]** Packaging Plan updated above accordingly — Docker image ships in 1.0, `dotnet tool` and NuGet are explicitly deferred (not abandoned), Stage 2 open question 2 marked resolved. This decision also simplifies the Release Checklist's "Versioning and release mechanics" section: the "decide whether CI gains a release job" item is no longer open-ended — it now specifically means the GHCR publish job described in the Packaging Plan above, gated on the same `v1.0.0` tag as the rest of this release, and it's the only publish job 1.0 needs (no NuGet `dotnet pack`/push, no `dotnet tool` manifest work). One remaining thread worth a deliberate answer before Stage 3, not assumed: does the GHCR publish job push on every `main` push (mirroring how the existing `docker` CI job already smoke-tests every push), on tag push only, or both (`:latest` on every push to `main`, a pinned `:X.Y.Z` only on a version tag) — the last of these is the common convention and the working default unless Timothy wants otherwise.
+
+Stage 3 (step-by-step implementation plan) is not drafted yet — pending Timothy's direction on the remaining open items above (LICENSE, version-vs-plan-004 sequencing, presentation timing, and the `:latest`-vs-tag-only publish-trigger question just raised).
