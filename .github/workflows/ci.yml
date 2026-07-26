@@ -33,8 +33,10 @@ jobs:
         run: dotnet test --no-build --configuration Release
 
   # Plan 002, Step 5: the image must build and BOOT on every push — a Dockerfile
-  # that only builds is untested deployment code. No registry push yet (that rung
-  # of the ladder needs versioning/tagging decisions; deliberately deferred).
+  # that only builds is untested deployment code. This job never pushes anywhere
+  # (build+smoke-test only, on every push/PR); the actual GHCR publish is a
+  # separate, narrower workflow — docker_image_release.yml (Release 1.0) —
+  # gated on pushes to main / version tags, not run here.
   docker:
     runs-on: ubuntu-latest
     steps:

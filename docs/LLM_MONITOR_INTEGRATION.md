@@ -21,8 +21,7 @@ The LangGraph agent's tool loop stops being theoretical: it discovers tools from
 ```yaml
 services:
   toolbox:
-    build:
-      context: ../Tool_Box        # sibling checkout; see "Image strategy" below
+    image: ghcr.io/timothy-lee-grant/tool_box:1.0.1   # pin a version tag, never :latest — see "Image strategy" below
     environment:
       # Host-header allowlist (DNS-rebinding defense). "toolbox" is the name
       # this service is addressed by on the compose network — it MUST be listed
@@ -34,9 +33,17 @@ services:
       timeout: 3s
       retries: 5
       start_period: 10s
-    # NOTE deliberately no `ports:` section — reachable ONLY on the internal
-    # network. This is ADR-008's lockdown posture: exposure is a config change
-    # someone has to consciously make, mirroring LLM_Monitor's own pattern.
+    # NOTE deliberately no `ports:` section for the MCP endpoint (8080) —
+    # reachable ONLY on the internal network. This is ADR-008's lockdown
+    # posture: exposure is a config change someone has to consciously make,
+    # mirroring LLM_Monitor's own pattern.
+    #
+    # Optional, separate decision (ADR-012): if the Voxel toolset is in play
+    # and you want to watch it build in a browser, publish ONLY the viewer
+    # port — it's receive-only/human-eyes-only, not the tool-execution
+    # endpoint, so it doesn't reopen the lockdown above:
+    #   ports:
+    #     - "8090:8090"
 
   langchain_service:
     depends_on:
@@ -46,7 +53,7 @@ services:
       TOOLBOX_URL: "http://toolbox:8080/mcp"
 ```
 
-**Image strategy:** `build: ../Tool_Box` is right for now (both repos checked out side by side; compose rebuilds on change). When that hurts — CI, other machines — the next rung is `docker build -t toolbox:latest ../Tool_Box` + `image: toolbox:latest`, and eventually a registry with version tags. Don't climb the ladder before the current rung wobbles.
+**Image strategy (updated, Release 1.0):** this originally read `build: context: ../Tool_Box` — right for a single machine with both repos checked out side by side, but it breaks the moment *this* project's own CI runs, since that runner never has a `../Tool_Box` checkout to build from. That's exactly the rung this ladder predicted would eventually wobble, and it did — the fix was publishing Tool_Box's image to GHCR (multi-arch: `linux/amd64` + `linux/arm64`, so it pulls correctly on both CI runners and Apple Silicon dev machines) rather than adding cross-repo checkout machinery. Pin an explicit version tag (`:1.0.1` above), never `:latest` — reproducibility matters more than always having the newest build, and `docker_image_release.yml` (Tool_Box's own CI) publishes both on every tagged release. One live exception worth knowing about, not a contradiction of the rule: while actively verifying a Tool_Box-side fix before committing to a new tag/publish cycle, temporarily switching back to `build: context: ../Tool_Box` is the right call — no point re-tagging until the fix is proven (this is exactly how the viewer's bind-address fix, ADR-012, was verified locally on 2026-07-26 before being folded into a future tag).
 
 **Mock mode (Stage 2 Q2 decision):** the toolbox service is NOT behind the live profile. Tools are real and cheap in both modes; only *models* are mocked in LLM_Monitor.
 
@@ -124,3 +131,4 @@ Plus one line in `scripts/acceptance_check.sh`: curl `http://toolbox:8080/health
 | Healthcheck never passes | curl missing (wrong base image edit) or app listening on localhost instead of `0.0.0.0` |
 | Tools list empty | Wrong URL path — the endpoint is `/mcp`, not `/` |
 | Works with curl, adapters fail | `transport` key not `"streamable_http"`, or adapters version drift — pin and retest |
+| Voxel viewer connects but always shows an empty/stale world, even after real tool calls | A stray `ToolBox.Host` process from earlier local (stdio) testing is squatting on `127.0.0.1:8090` on the host and winning the connection ahead of Docker's published port (ADR-012's discovery, ImplementationPlans/005 §2026-07-26) — `lsof -nP -iTCP:8090` on the host to check, `kill` it, reconnect the viewer. Not a Tool_Box or LLM_Monitor bug; a leftover local process. |

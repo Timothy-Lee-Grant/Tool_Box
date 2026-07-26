@@ -91,12 +91,19 @@ public sealed class VoxelViewerBroadcastService(VoxelWorld world, ILogger<VoxelV
         foreach (int port in CandidatePorts)
         {
             var listener = new HttpListener();
-            listener.Prefixes.Add($"http://127.0.0.1:{port}/voxel/");
+            // "+" (HttpListener's strong wildcard), not a literal "127.0.0.1": loopback-only
+            // binds are unreachable through Docker's port publishing, because -p forwards
+            // traffic addressed to the container's real interface, which a loopback-bound
+            // socket never sees. This is the same fix ToolBoxHttpApp.cs already needed for
+            // the MCP endpoint (ASPNETCORE_URLS=http://0.0.0.0:8080), just for HttpListener's
+            // own prefix syntax instead of Kestrel's. Binding "+" still accepts connections
+            // via 127.0.0.1 too, so the direct-on-host (stdio) path is unaffected.
+            listener.Prefixes.Add($"http://+:{port}/voxel/");
             try
             {
                 listener.Start();
                 Port = port;
-                logger.LogInformation("Voxel viewer listening on ws://127.0.0.1:{Port}/voxel/", port);
+                logger.LogInformation("Voxel viewer listening on port {Port} (path /voxel/, all interfaces)", port);
                 return listener;
             }
             catch (HttpListenerException)

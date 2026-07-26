@@ -51,6 +51,12 @@ ENV TOOLBOX_TRANSPORT=http
 ENV ASPNETCORE_URLS=http://0.0.0.0:8080
 EXPOSE 8080
 
+# The Voxel toolset's viewer-broadcast WebSocket (VoxelViewerBroadcastService,
+# first of CandidatePorts 8090-8093) — independent of the MCP endpoint above,
+# documentation only (EXPOSE doesn't publish anything by itself); an actual
+# compose file still has to add its own `ports:` mapping to reach it.
+EXPOSE 8090
+
 # Non-root: the .NET images define APP_UID for exactly this line.
 USER $APP_UID
 
