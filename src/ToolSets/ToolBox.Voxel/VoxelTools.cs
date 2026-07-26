@@ -282,7 +282,7 @@ public sealed class VoxelTools
 
         VoxelBounds b = bounds.Value;
         return OutputLimiter.Limit(
-            $"{_world.Count} blocks. x {b.MinX}..{b.MaxX}, y {b.MinY}..{b.MaxY}, z {b.MinZ}..{b.MaxZ}.");
+            $"{_world.Count} blocks. x {b.MinX}..{b.MaxX}, y {b.MinY}..{b.MaxY}, z {b.MinZ}..{b.MaxZ}. [diag world-hash={_world.GetHashCode()}]");
     }
 
     private static string? ValidateGround(int y, string paramName) =>

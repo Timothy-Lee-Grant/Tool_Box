@@ -103,7 +103,7 @@ public sealed class VoxelViewerBroadcastService(VoxelWorld world, ILogger<VoxelV
             {
                 listener.Start();
                 Port = port;
-                logger.LogInformation("Voxel viewer listening on port {Port} (path /voxel/, all interfaces)", port);
+                logger.LogInformation("Voxel viewer listening on port {Port} (path /voxel/, all interfaces) [diag world-hash={Hash}]", port, world.GetHashCode());
                 return listener;
             }
             catch (HttpListenerException)
@@ -133,16 +133,20 @@ public sealed class VoxelViewerBroadcastService(VoxelWorld world, ILogger<VoxelV
         {
             _sockets.Add(socket);
         }
+        logger.LogInformation("[diag] socket added, count={Count}", _sockets.Count);
 
         // A newly-connected (or refreshed) viewer has no history — it needs the full
         // current state once, then diffs from here on.
         if (!await TrySendAsync(socket, BuildSnapshotMessage(), stoppingToken))
         {
+            logger.LogInformation("[diag] snapshot send FAILED, removing socket");
             RemoveSocket(socket);
             return;
         }
+        logger.LogInformation("[diag] snapshot sent OK, count still={Count}", _sockets.Count);
 
         await WaitForCloseAsync(socket, stoppingToken);
+        logger.LogInformation("[diag] WaitForCloseAsync returned, removing socket");
         RemoveSocket(socket);
     }
 
@@ -173,22 +177,35 @@ public sealed class VoxelViewerBroadcastService(VoxelWorld world, ILogger<VoxelV
         }
     }
 
-    private void OnWorldChanged(VoxelChange change) => _ = BroadcastAsync(BuildChangeMessage(change));
+    private void OnWorldChanged(VoxelChange change)
+    {
+        logger.LogInformation("[diag] OnWorldChanged fired: {Type}, sockets={Count}", change.GetType().Name, _sockets.Count);
+        _ = BroadcastAsync(BuildChangeMessage(change));
+    }
 
     private async Task BroadcastAsync(string message)
     {
-        List<WebSocket> targets;
-        lock (_lock)
+        try
         {
-            targets = [.. _sockets];
-        }
-
-        foreach (WebSocket socket in targets)
-        {
-            if (!await TrySendAsync(socket, message, CancellationToken.None))
+            List<WebSocket> targets;
+            lock (_lock)
             {
-                RemoveSocket(socket);
+                targets = [.. _sockets];
             }
+
+            logger.LogInformation("[diag] BroadcastAsync sending to {Count} targets", targets.Count);
+
+            foreach (WebSocket socket in targets)
+            {
+                if (!await TrySendAsync(socket, message, CancellationToken.None))
+                {
+                    RemoveSocket(socket);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "[diag] BroadcastAsync threw");
         }
     }
 
