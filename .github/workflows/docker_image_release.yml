@@ -16,6 +16,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # Needed to cross-build for arm64 on this (amd64) runner — without this,
+      # build-push-action silently only builds for the runner's own platform,
+      # which is how the image ended up amd64-only on the first publish.
+      - name: Set up QEMU (cross-arch emulation)
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -46,5 +52,10 @@ jobs:
         with:
           context: .
           push: true
+          # linux/amd64 (GitHub-hosted runners, most cloud hosts) + linux/arm64
+          # (Apple Silicon dev machines, AWS Graviton, etc.) — build-push-action
+          # publishes ONE manifest list covering both; `docker pull`/`compose up`
+          # on either architecture resolves the same tag to the right image.
+          platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
