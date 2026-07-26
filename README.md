@@ -51,7 +51,7 @@ Not a list of buzzwords — every line below is backed by something you can actu
   ToolBox.Core        shared plumbing: bounded output, server info, logging rules
 ```
 
-The Voxel toolset also brings its own companion infrastructure — a `BackgroundService` that broadcasts world changes over a loopback WebSocket (`:8090`, independent of and never colliding with the MCP HTTP transport's own `:8080`) to the live browser viewer shown above. Design rules that held across both toolsets: toolsets never know about the protocol or each other; the Host never contains domain logic; all tool output is bounded; a stdio server's stdout belongs to the protocol — logs go to stderr, always, checked on every change, not assumed.
+The Voxel toolset also brings its own companion infrastructure — a `BackgroundService` that broadcasts world changes over a WebSocket (`:8090`, independent of and never colliding with the MCP HTTP transport's own `:8080`) to the live browser viewer shown above. It binds all interfaces, so it works identically run directly on a host or published from a container (ADR-012) — a separate, deliberate exposure decision from the MCP endpoint's, since the viewer channel is receive-only and grants no tool-execution capability. Design rules that held across both toolsets: toolsets never know about the protocol or each other; the Host never contains domain logic; all tool output is bounded; a stdio server's stdout belongs to the protocol — logs go to stderr, always, checked on every change, not assumed.
 
 ## Quickstart
 
@@ -149,6 +149,8 @@ docker compose up --build        # healthy at http://localhost:8081/health
 
 Multi-stage, non-root, layer-cache-ordered Dockerfile; CI builds the image and polls `/health` on every push, so "the container boots" is a continuously-verified claim, not documentation that quietly drifted from reality. Consuming this from another project (LLM_Monitor's LangGraph agent, via `langchain-mcp-adapters`): [`docs/LLM_MONITOR_INTEGRATION.md`](docs/LLM_MONITOR_INTEGRATION.md).
 
+The Voxel viewer works through the container too — this compose file already publishes `8090:8090` alongside the MCP port, so `viewer/index.html` (its hardcoded `ws://127.0.0.1:8090/voxel/`) connects the same way whether the Host is running via `dotnet run` or inside Docker.
+
 ## The engineering process behind this repo
 
 Every plan in this project follows the same staged shape, and the full back-and-forth is preserved, not summarized after the fact:
@@ -172,6 +174,7 @@ Read the source material, not a summary of it:
 - **Plan 002** — Streamable HTTP transport, Docker, LLM_Monitor integration walkthrough. *Done.*
 - **Plan 003** — Voxel toolset: stateful world model, shape-rasterization primitives, a live WebSocket viewer, a Claude Code skill file. *Done — this is the feature shown above.*
 - **Plan 004** — A SPICE-backed electrical circuit design toolset (describe a circuit, get it simulated and exported). *Designed, deferred.*
-- **Next** — real LLM_Monitor consumption of the Voxel toolset (via that repo's own plan); revisit plan 004.
+- **Plan 005 (Release 1.0)** — In progress: the Docker image now publishes to GHCR (multi-arch, `linux/amd64`+`linux/arm64`), and real cross-project consumption is verified end to end — LLM_Monitor's LangGraph agent calling Voxel tools live through a real model, rendered in the browser viewer through the container (ADR-012). Remaining: LICENSE decision, a first `v1.0.0` tag/publish cycle, release notes.
+- **Next** — close out plan 005; revisit plan 004.
 
 Current toolset/tool count: **2 toolsets, 15 tools**, all documented in [`docs/TOOL_CATALOG.md`](docs/TOOL_CATALOG.md).
