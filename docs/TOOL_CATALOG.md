@@ -40,7 +40,7 @@ A live-buildable voxel world (plan 003). Tools describe *form*, not coordinates 
 
 - **State is a single global singleton** (`VoxelWorld`), shared by every connected client — a documented v1 limitation, not an oversight (ADR-009). No session scoping yet.
 - **Materials are validated against a fixed palette of 12** (deliberately fewer than the reference implementation this is modeled on's 100) — an unrecognized name returns a text hint, never an exception.
-- **The agent cannot see the build.** A companion `BackgroundService` broadcasts world changes over a raw loopback WebSocket (`ws://127.0.0.1:8090/voxel/`, falling back to 8091-8093 if taken) to a browser viewer (`viewer/index.html`) — but that channel is one-directional, server → browser, for human eyes only. The only feedback a tool call itself returns is the text above; there is no image or vision loop back to the model.
+- **The agent cannot see the build.** A companion `BackgroundService` broadcasts world changes over a WebSocket (bound to all interfaces, port 8090 falling back to 8091-8093 if taken — ADR-012) to a browser viewer (`viewer/index.html`) — but that channel is one-directional, server → browser, for human eyes only. The only feedback a tool call itself returns is the text above; there is no image or vision loop back to the model. Reachable at `ws://localhost:8090/voxel/` when run directly on a host, or at `ws://<published-host>:8090/voxel/` once a container publishes that port (a separate, deliberate exposure decision from the MCP endpoint's — ADR-012).
 - The viewer works identically regardless of which MCP transport the Host is running (stdio or HTTP) — it is not part of the MCP wire at all, just infrastructure the toolset brings with it (ADR-010).
 
 ## Transport independence

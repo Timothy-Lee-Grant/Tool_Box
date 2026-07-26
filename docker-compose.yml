@@ -9,6 +9,7 @@ services:
     container_name: toolbox
     ports:
       - "8081:8080" # host:container — Inspector connects to http://localhost:8081/mcp
+      - "8090:8090" # host:container — voxel viewer WebSocket; viewer/index.html connects to ws://localhost:8090/voxel/
     environment:
       # DNS-rebinding defense (SDK docs guidance, queued for ADR-008):
       # accept only the names this server is legitimately addressed by.

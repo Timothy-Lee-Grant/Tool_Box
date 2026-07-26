@@ -34,9 +34,17 @@ services:
       timeout: 3s
       retries: 5
       start_period: 10s
-    # NOTE deliberately no `ports:` section — reachable ONLY on the internal
-    # network. This is ADR-008's lockdown posture: exposure is a config change
-    # someone has to consciously make, mirroring LLM_Monitor's own pattern.
+    # NOTE deliberately no `ports:` section for the MCP endpoint (8080) —
+    # reachable ONLY on the internal network. This is ADR-008's lockdown
+    # posture: exposure is a config change someone has to consciously make,
+    # mirroring LLM_Monitor's own pattern.
+    #
+    # Optional, separate decision (ADR-012): if the Voxel toolset is in play
+    # and you want to watch it build in a browser, publish ONLY the viewer
+    # port — it's receive-only/human-eyes-only, not the tool-execution
+    # endpoint, so it doesn't reopen the lockdown above:
+    #   ports:
+    #     - "8090:8090"
 
   langchain_service:
     depends_on:
