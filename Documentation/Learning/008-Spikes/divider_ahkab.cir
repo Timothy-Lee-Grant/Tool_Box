@@ -1,0 +1,21 @@
+* 5V to 3.3V resistive divider -- AHKAB DIALECT, not ngspice
+*
+* Lecture 008, Part 2.4: "SPICE format" is a family, not a standard.
+* Textbook/ngspice syntax for the source is:
+*     V1 vin 0 dc 5
+* ahkab rejects that outright:
+*     E: Parse error on line 2:  v1 vin 0 dc 5
+*     NetlistParseError: parse_elem_vsource(): unknown type dc
+* ahkab wants type=vdc vdc=5 instead. Same circuit, same family, incompatible grammar.
+*
+* This is the evidence behind the design rule: do NOT build "a SPICE emitter".
+* Build an NGSPICE emitter, name the dialect in an ADR, and pin the tests to it.
+*
+* Run:  pip install "scipy==1.11.4" ahkab   &&   ahkab divider_ahkab.cir
+* Expect: VVOUT = 3.33333 V, I(V1) = -0.0151515 A
+* which matches the from-scratch MNA solve in verify_concepts.py exactly.
+V1 vin 0 type=vdc vdc=5
+R1 vin vout 110
+R2 vout 0 220
+.op
+.end
