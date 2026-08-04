@@ -283,3 +283,29 @@ Steps 1, 3, and 4 have no hardware dependency at all and could be fully built, t
 ---
 
 *Stage 3 drafted 2026-08-03. Awaiting Timothy's review before Stage 4 (step-by-step permissioned implementation) begins — in particular, confirm the NUCLEO-F401RE/F411RE recommendation before it's ordered, since Steps 2 and 5–9 all assume it.*
+
+**[2026-08-03, Timothy]** Confirmed no unresolved issues; permission granted for Step 1.
+
+---
+
+# Stage 4 (Implementation)
+
+**[2026-08-03, AI — Step 1: Project scaffolding]**
+
+Two items were technically still open going into this (the exact Nucleo model, unconfirmed; the Docker/USB-passthrough spike, unrun) — neither blocks Step 1, since scaffolding is board- and Docker-independent: plain project files with no firmware or container content yet. Proceeded on that basis; both remain live before Step 2/5+ and before §3.1 is written down as a permanent ADR, respectively.
+
+Done, matching §Steps 1.1–1.3 exactly:
+
+- `src/ToolSets/ToolBox.Embedded/ToolBox.Embedded.csproj` — same shape as `ToolBox.Voxel.csproj` (`ProjectReference` to Core, `ModelContextProtocol` 1.4.1, `Microsoft.Extensions.Hosting.Abstractions` 10.0.7 for the future `SerialReaderService`), plus `System.IO.Ports` 10.0.10 (queried against the live NuGet feed rather than guessed — latest stable, matches the `net10.0` release train). A comment on the `System.IO.Ports` reference flags it unverified on macOS per §2.8 spike #2, so that caveat travels with the code, not just the plan doc.
+- `tests/ToolBox.Embedded.Tests/ToolBox.Embedded.Tests.csproj` — identical shape to `ToolBox.Voxel.Tests.csproj`.
+- `ToolBox.slnx` — both new projects added to the existing `/src/ToolSets/` and `/tests/` solution folders.
+- `ToolBox.Host.csproj` — `ProjectReference` to `ToolBox.Embedded` added now; the actual `.AddEmbeddedToolset()` composition line (gated behind `TOOLBOX_ALLOW_HARDWARE_ACTIONS`, per §2.3/Step 4) is deliberately deferred to Step 8, same sequencing plan 003 used for Voxel.
+
+No `[McpServerTool]`, no domain types, no tools registered — nothing runtime-visible changes yet, matching the step's own definition of done.
+
+Verified, not assumed:
+
+- `dotnet build` — succeeds, 0 warnings, 0 errors, all 11 projects including the two new ones.
+- `dotnet test` — all pre-existing suites still green (12+50+10+5 = 77, unchanged from before this step, as expected since nothing in Embedded has logic yet); the new `ToolBox.Embedded.Tests` project runs cleanly with zero tests (no failure, nothing to report yet).
+
+State: scaffolding complete and verified on this machine (no separate confirmation needed this time — unlike plan 001 Step 1, this sandbox has the .NET 10 SDK). **Awaiting: permission for Step 2 (bundled reference firmware) — note this is the first `[HW]`-marked step and requires the Nucleo physically in hand.**

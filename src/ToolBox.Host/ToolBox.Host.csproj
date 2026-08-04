@@ -9,6 +9,10 @@
     <ProjectReference Include="..\ToolBox.Core\ToolBox.Core.csproj" />
     <ProjectReference Include="..\ToolSets\ToolBox.Basics\ToolBox.Basics.csproj" />
     <ProjectReference Include="..\ToolSets\ToolBox.Voxel\ToolBox.Voxel.csproj" />
+    <!-- Reference added now (plan 006, Step 1); the actual .AddEmbeddedToolset()
+         composition line — gated behind TOOLBOX_ALLOW_HARDWARE_ACTIONS — lands in
+         Step 8, same "wire the reference before the usage" sequencing plan 003 used. -->
+    <ProjectReference Include="..\ToolSets\ToolBox.Embedded\ToolBox.Embedded.csproj" />
   </ItemGroup>
 
   <ItemGroup>

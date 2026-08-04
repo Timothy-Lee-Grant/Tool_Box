@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Shared settings come from Directory.Build.props -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\ToolBox.Core\ToolBox.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Needed for the [McpServerTool*] attributes and the IMcpServerBuilder
+         registration extension. Toolsets still never touch the *transport* —
+         that remains the Host's exclusive concern. -->
+    <PackageReference Include="ModelContextProtocol" Version="1.4.1" />
+    <!-- BackgroundService, for the serial reader (plan 006, Step 7). Not brought
+         in transitively by ModelContextProtocol — this toolset is what needs it, so
+         this toolset references it, same "one project, one reason" discipline as
+         everything else in Directory.Build.props. -->
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.7" />
+    <!-- The Scribe (plan 006 §2.2): reads the Nucleo's ST-Link virtual COM port.
+         macOS support is unverified — plan 006 §2.8 spike #2 — before this is
+         trusted beyond "the package restores and compiles." -->
+    <PackageReference Include="System.IO.Ports" Version="10.0.10" />
+  </ItemGroup>
+
+</Project>
