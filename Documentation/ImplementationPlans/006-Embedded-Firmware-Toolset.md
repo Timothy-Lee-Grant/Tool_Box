@@ -309,3 +309,28 @@ Verified, not assumed:
 - `dotnet test` — all pre-existing suites still green (12+50+10+5 = 77, unchanged from before this step, as expected since nothing in Embedded has logic yet); the new `ToolBox.Embedded.Tests` project runs cleanly with zero tests (no failure, nothing to report yet).
 
 State: scaffolding complete and verified on this machine (no separate confirmation needed this time — unlike plan 001 Step 1, this sandbox has the .NET 10 SDK). **Awaiting: permission for Step 2 (bundled reference firmware) — note this is the first `[HW]`-marked step and requires the Nucleo physically in hand.**
+
+**[2026-08-04, Timothy]** Permission granted for Step 2.
+
+**[2026-08-04, AI — Step 2: Bundled reference firmware]**
+
+Facts load-bearing enough to get wrong on real silicon — peripheral base addresses, pin assignments, register bit positions — were checked against RM0368 and community sources via web search rather than pulled from memory alone, matching plan 004's "labeled verified vs. assumed" discipline. Sources: [ST RM0368 reference manual](https://www.st.com/resource/en/reference_manual/dm00096844-stm32f401xb-c-and-stm32f401xd-e-advanced-arm-based-32-bit-mcus-stmicroelectronics.pdf) (memory map, register layout), [Cirkit Designer's Nucleo-F401RE pinout](https://docs.cirkitdesigner.com/component/4a1d82a1-8187-4a51-85a6-9ed4333090e7/stm-32-nucleo-f401re) and [components101's pinout](https://components101.com/microcontrollers/stm32-nucleo-f401re-pinout-datasheet) (LD2=PA5, B1=PC13, confirmed independently), [controllerstech.com's register-level UART walkthrough](https://controllerstech.com/how-to-setup-uart-using-registers-in-stm32/) and a second targeted search cross-checking it (the first fetch conflated `TC` and `TXE` as both bit 6 — caught and corrected against a second source to `TXE=bit7, TC=bit6, RXNE=bit5`, RM0090/RM0368's actual layout). [Homebrew's `arm-none-eabi-gcc` formula page](https://formulae.brew.sh/formula/arm-none-eabi-gcc) confirmed it's mainline `homebrew-core`, no tap needed.
+
+Created, all under `firmware/nucleo-blink/` (outside `ToolBox.slnx`, same "not part of the .NET solution" pattern as `viewer/`):
+
+- `regs.h` — hand-written register structs/bit definitions for exactly the four peripherals this program touches (RCC, GPIOA, GPIOC, USART2). **Deviation from §Steps' wording**, flagged rather than silently substituted: the step originally allowed "the vendor's CMSIS device header" as a dependency; hand-rolling instead keeps this directory buildable from a fresh clone with nothing beyond the compiler, and is the more honest teaching artifact per `persona.md`'s documentation preferences — every address is traceable to a specific RM0368 section in a comment, not inherited opaquely from a 25,000-line vendor header.
+- `main.c` — blinks LD2 (PA5), reads B1 (PC13, active-low) to double the blink rate while held, configures USART2 (PA2/PA3, AF7) at 115200 baud from the 16 MHz HSI reset-default clock, and echoes received bytes. The baud-rate divisor is computed from `HSI_HZ`/`BAUD_RATE` as a named compile-time expression with the RM0368 formula in a comment, not a bare magic number.
+- `startup.s` — hand-written vector table (16 Cortex-M core-exception entries only, no peripheral IRQs — nothing here unmasks an NVIC line) and `Reset_Handler` (copies `.data` flash→RAM, zeroes `.bss`, calls `main`). Structurally the same shape as ST's own CMSIS startup file, just hand-written for the same reproducibility reason as `regs.h`.
+- `linker.ld` — `FLASH` (512K @ `0x08000000`) / `RAM` (96K @ `0x20000000`), both confirmed against ST's datasheet.
+- `Makefile` — `make` builds; `make flash` runs the exact `openocd ... program ... verify reset exit` command Step 2.2 (and later, Step 5) needs.
+- `README.md` — the by-hand build/flash/verify walkthrough for Step 2.2's checkpoint, written for Timothy to run, not for an agent to run.
+
+Verified, not assumed — as far as verification can go without the board attached:
+
+- Installed `arm-none-eabi-gcc` (Homebrew, mainline formula, not previously present on this machine) specifically to catch mistakes before handing physical verification off, rather than asking Timothy to be the first person to compile this.
+- `make` — builds clean, **zero warnings** even under `-Wall -Wextra`, `text=536 bytes, data=0, bss=0`.
+- Structural ELF inspection (`objdump`/`readelf`/`nm`) — the linked vector table matches the ARM Cortex-M architecture spec **byte-for-byte**: word 0 = `0x20018000` (`_estack`, matching `RAM origin + 96K` exactly), word 1 = `Reset_Handler+1` (Thumb bit correctly set, and it matches the ELF's own entry point), words 2–6 and the SVC/DebugMon/PendSV/SysTick slots all resolve to `Default_Handler`'s address as expected from the weak-alias pattern, reserved slots are exactly zero in exactly the positions RM0368's table specifies. `.isr_vector` and `.text` both land in `FLASH`; `.data`/`.bss` both land in `RAM`; `_sidata` correctly points at `.data`'s flash load address.
+
+This is real evidence the assembly, linker script, and C are structurally sound — but it is not Step 2.2's checkpoint, and doesn't substitute for it. Nothing here proves the chip's silicon does what the reference manual says, that this exact board's ST-Link enumerates correctly, or that 115200 baud at the computed `BRR` value is actually clean on a scope — only a human, watching a real LED and a real terminal, closes that loop.
+
+State: firmware authored and compile-verified; **hardware verification (README's three checkpoints — LED blinks, button speeds it up, serial echoes) is Timothy's step, not done yet.** Awaiting: confirmation the by-hand checkpoint passed, or a report of what didn't, before Step 3 begins.
