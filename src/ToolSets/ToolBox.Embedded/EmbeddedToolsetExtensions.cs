@@ -6,10 +6,10 @@ namespace ToolBox.Embedded;
 /// <summary>
 /// The toolset's single public doorway (ADR-005), same shape as
 /// <c>VoxelToolsetExtensions.AddVoxelToolset()</c>. Only <see cref="BuildTools"/>
-/// is registered so far (plan 006 Step 3) — Steps 4-7 add the gated
-/// <c>physical</c>-tier tools (flash/debug/serial) behind
-/// <c>TOOLBOX_ALLOW_HARDWARE_ACTIONS</c>, and Step 8 is what actually calls
-/// this from <c>ToolBoxServerComposition</c>.
+/// is registered so far (plan 006 Step 3) — Steps 5-7 add the `physical`-tier
+/// tool types (flash/debug/serial), each gated behind
+/// <see cref="PhysicalActionGate.HardwareActionsAllowed"/> (Step 4), and Step 8
+/// is what actually calls this from <c>ToolBoxServerComposition</c>.
 /// </summary>
 public static class EmbeddedToolsetExtensions
 {
@@ -20,12 +20,33 @@ public static class EmbeddedToolsetExtensions
         builder.Services.AddSingleton<EmbeddedSession>();
         builder.Services.AddSingleton(new FirmwareDirectory(ResolveDefaultFirmwareDirectory()));
 
+        // TimeProvider.System is already registered by AddToolBoxCore() (Core's
+        // ServiceCollectionExtensions), same clock ServerInfoProvider resolves —
+        // constructed directly here (not via DI-resolved builder.Services later)
+        // only because HardwareActionsAllowed is needed immediately below, to
+        // decide the toolset descriptor text.
+        var gate = new PhysicalActionGate(TimeProvider.System);
+        builder.Services.AddSingleton(gate);
+
         builder.Services.AddToolsetDescriptor(
             name: "Embedded",
-            description: "Firmware troubleshooting for a NUCLEO-F401RE: compile the bundled " +
-                         "reference firmware (build-only so far; flash/GDB/serial land in later steps).");
+            description: gate.HardwareActionsAllowed
+                ? "Firmware troubleshooting for a NUCLEO-F401RE: compile, flash, GDB-debug, and " +
+                  "talk over serial. Hardware actions are enabled (TOOLBOX_ALLOW_HARDWARE_ACTIONS=true)."
+                : "Firmware troubleshooting for a NUCLEO-F401RE: compile-only in this session. " +
+                  "Hardware actions (flash/debug/serial) are disabled — set " +
+                  $"{PhysicalActionGate.EnvironmentVariableName}=true to enable them.");
 
-        return builder.WithTools<BuildTools>();
+        builder.WithTools<BuildTools>();
+
+        // Steps 5-7 add their `physical`-tier tool types here, each behind
+        // `if (gate.HardwareActionsAllowed) { builder.WithTools<...>(); }` —
+        // per plan 006 §2.3, absent from the catalog entirely when hardware
+        // actions aren't opted into, not merely refusing at call time.
+        // Nothing to gate yet: BuildTools has no `physical` tools, so there's
+        // no conditional branch to write until FlashTools exists (Step 5).
+
+        return builder;
     }
 
     /// <summary>

@@ -362,3 +362,28 @@ Verified, not assumed:
 - Confirmed via `git add --dry-run` that fixture `build/` output stays untracked (the repo's existing generic `build/` `.gitignore` pattern already covers it — no new ignore rule needed).
 
 State: Build area complete and verified, including a real CI-path check (the toolchain-install line), on this machine. **Not yet verified: that this same CI step actually passes on a hosted GitHub Actions runner** — worth confirming on the next push rather than assuming apt's `gcc-arm-none-eabi` package resolves identically there. Awaiting: permission for Step 4 (physical-action gating) — still hardware-independent, next in the reordered sequence.
+
+**[2026-08-04, Timothy]** "next" — permission granted for Step 4.
+
+**[2026-08-04, AI — Step 4: Physical-action gating]**
+
+**Scope note, flagged rather than silently narrowed:** 4.4 as written asks for tests proving "env var unset → tools absent from a test `IMcpServerBuilder`; set → present." There is no `physical`-tagged tool type to gate yet — `BuildTools` has none, and `FlashTools` doesn't exist until Step 5 — so that specific assertion would be exercising an empty set against nothing, a vacuous test rather than a real one. Deferred that half of 4.4 to Step 5, where `FlashTools` gives it something real to assert presence/absence of. Everything else in 4.1–4.4 is built and tested now.
+
+Created, under `src/ToolSets/ToolBox.Embedded/`:
+
+- `PhysicalActionGate.cs` — two responsibilities in one class, matching §2.3's two mechanisms exactly:
+  1. `HardwareActionsAllowed`, parsed once from `TOOLBOX_ALLOW_HARDWARE_ACTIONS` (`"true"`/`"1"`, case-insensitive on `true`; deliberately no synonym-guessing like `"yes"`/`"on"` — one spelling, unambiguous).
+  2. A single-use, short-lived (2-minute) confirm-token flow: `IssueToken(summary)` / `TryConsumeToken(token, out summary)` returning `Valid`/`Unknown`/`Expired`. A token is removed the moment it's looked up, valid or not — so neither a stale token nor a legitimate one can ever be replayed.
+  - Takes `TimeProvider` via constructor injection, same convention as `ServerInfoProvider` (persona.md's plan 001 note: "tests control the clock, no `Thread.Sleep`-based expiry tests"). Two public constructors — `(TimeProvider)` for production (reads the real env var) and `(string? rawEnvironmentValue, TimeProvider)` for tests (no env-var mutation, which would be unsafe under parallel test execution anyway). DI only considers the first: a bare `string?` isn't resolvable from the container, so `ActivatorUtilities` correctly skips the second constructor without any `[ActivatorUtilitiesConstructor]` attribute needed — confirmed by the successful build, not assumed.
+
+Updated `EmbeddedToolsetExtensions.cs`: constructs `PhysicalActionGate` (using the already-registered `TimeProvider.System` from `AddToolBoxCore()`, same clock `ServerInfoProvider` resolves) and registers it as a singleton immediately after `EmbeddedSession`/`FirmwareDirectory`. The toolset descriptor's text now differs based on `HardwareActionsAllowed` — hardware-enabled vs. compile-only-with-instructions-to-enable — a small, real, observable proof the gate is actually consulted rather than inert plumbing, visible to any `server_info` caller even before Step 5 gives it a tool type to gate. Left an explicit comment marking exactly where Steps 5–7 attach their `if (gate.HardwareActionsAllowed) { builder.WithTools<...>(); }` conditionals.
+
+Created `tests/ToolBox.Embedded.Tests/PhysicalActionGateTests.cs` — 14 tests: 8 theory cases covering env-value parsing (`null`/`""`/`"false"`/`"0"`/`"yes"` → false; `"true"`/`"TRUE"`/`"1"` → true — `"yes"` deliberately included as a *rejected* case, proving the "no synonym-guessing" decision is enforced, not just described), plus issue→consume round-trip, unknown-token, single-use/replay, post-expiry (`Expired`, using the `TestClock` pattern), and a token-issuance validation guard.
+
+Verified, not assumed:
+
+- `dotnet build` — 0 warnings, 0 errors, all 13 projects.
+- `dotnet test` — **99 total** (was 85; +14, all `PhysicalActionGateTests`), all passing.
+- `git status` — only the intended files touched; no stray fixture/build artifacts.
+
+State: gating mechanism built and fully tested with zero hardware attached, per this step's own checkpoint. **Not yet proven:** that the gate actually controls a real tool's presence — that's Step 5's job, and it's the first thing Step 5 should verify before anything else in it. Steps 5, 6, and 7 are all `[HW]`-marked in full, and Timothy doesn't have the board yet — but two sub-pieces inside them don't actually need it: `GdbMiParser` (Step 6.2 — a hand-rolled parser that only needs canned MI text, not a live GDB session) and the serial ring buffer's bounding logic (inside Step 7's `SerialReaderService`, not the actual port I/O). §2.7 named both of these explicitly as the toolset's hardware-independent test surface. Awaiting: direction on which of those two to pull forward, versus Step 8's non-hardware sub-parts (catalog/ADR docs), versus pausing here until the board arrives.
