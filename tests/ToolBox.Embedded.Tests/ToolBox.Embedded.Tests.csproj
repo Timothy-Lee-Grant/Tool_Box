@@ -20,4 +20,10 @@
     <ProjectReference Include="..\..\src\ToolSets\ToolBox.Embedded\ToolBox.Embedded.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- BuildToolsTests shells out to a real arm-none-eabi-gcc against these
+         (plan 006 Step 3) — needs to exist next to the test DLL, not just in source. -->
+    <None Update="Fixtures\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

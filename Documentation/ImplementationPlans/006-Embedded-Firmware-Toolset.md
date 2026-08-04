@@ -333,4 +333,32 @@ Verified, not assumed — as far as verification can go without the board attach
 
 This is real evidence the assembly, linker script, and C are structurally sound — but it is not Step 2.2's checkpoint, and doesn't substitute for it. Nothing here proves the chip's silicon does what the reference manual says, that this exact board's ST-Link enumerates correctly, or that 115200 baud at the computed `BRR` value is actually clean on a scope — only a human, watching a real LED and a real terminal, closes that loop.
 
-State: firmware authored and compile-verified; **hardware verification (README's three checkpoints — LED blinks, button speeds it up, serial echoes) is Timothy's step, not done yet.** Awaiting: confirmation the by-hand checkpoint passed, or a report of what didn't, before Step 3 begins.
+State: firmware authored and compile-verified; **hardware verification (README's three checkpoints — LED blinks, button speeds it up, serial echoes) is Timothy's step, not done yet.** Awaiting: confirmation the by-hand checkpoint passed, or a report of what didn't, before Step 2.2 can be marked complete.
+
+**[2026-08-04, Timothy]** No hardware yet — the Nucleo hasn't been ordered/arrived. Reordering per the Steps section's own closing note ("Steps 1, 3, and 4 have no hardware dependency at all"): proceeding to Step 3, skipping Step 2.2's physical checkpoint for now. Step 2's authored firmware stands as written, unverified on real silicon until the board is in hand.
+
+**[2026-08-04, AI — Step 3: Build tools]**
+
+Created, all under `src/ToolSets/ToolBox.Embedded/`:
+
+- `EmbeddedSession.cs` — the singleton state object named in the Stage 3 target structure, scoped to build-only state for now (`BuildResult? LastBuild`) rather than pre-building placeholder fields for flash/debug/serial — same "separate early, abstract late" instinct ADR-003 established, applied to this toolset's own state object instead of a platform-wide abstraction.
+- `FirmwareDirectory.cs` — a one-field wrapper around the path `BuildTools` runs `make` in. Added specifically so `BuildTools` never hardcodes `firmware/nucleo-blink/` — production resolves it once in `EmbeddedToolsetExtensions`, tests inject a small fixture directory instead. This is what makes Step 3.2's fixture-based tests possible without needing the real (much larger) reference firmware to compile as part of every test run.
+- `BuildTools.cs` — `build_firmware()`, `get_build_log()`, `clean_build()`, exactly as scoped. Shells to `make` via `Process`, capturing stdout/stderr separately then combining them (stderr labeled, so a compiler error is never silently interleaved into unrelated stdout noise). `get_build_log()` routes through `OutputLimiter`, matching the platform's standing discipline.
+- `EmbeddedToolsetExtensions.cs` — `AddEmbeddedToolset()` registers `EmbeddedSession`, resolves the default `FirmwareDirectory` by walking up from the running assembly to `ToolBox.slnx` (documented as assuming a repo checkout is present, consistent with §3.1's native/dev-machine-only scoping), and calls `WithTools<BuildTools>()`. **Not yet wired into `ToolBoxServerComposition`** — that's still Step 8, and Step 4's gating logic still needs to wrap whatever `physical`-tagged tools future steps add here.
+
+Created, under `tests/ToolBox.Embedded.Tests/`:
+
+- `Fixtures/valid-firmware/` and `Fixtures/broken-firmware/` — minimal standalone `main.c`/`Makefile` pairs, deliberately not the real `firmware/nucleo-blink/` project (no linking, no board-specific complexity needed to prove the shell-out logic works). The broken fixture references an undeclared identifier — a real compiler error, not a contrived string.
+- `BuildToolsTests.cs` — five tests, all against the **real** `arm-none-eabi-gcc`, not a mock: valid source reports success, broken source reports failure, `get_build_log()` before any build says so rather than returning empty, `get_build_log()` after a failed build contains the actual compiler error text, `clean_build()` removes the `build/` directory it created. Same "prove it against the real tool, not a mock" instinct as the Voxel WebSocket close-handshake story (plan 003) — a mocked "compiler succeeded" would hide exactly the process-plumbing bugs (wrong working directory, one stream captured but not the other, exit code misread) this class is actually at risk of.
+- `DescriptionConventionTests.cs` — copy of the Basics/Voxel pattern, `typeof(BuildTools)`, 3 tools, full `[Description]` coverage asserted.
+- `ToolBox.Embedded.Tests.csproj` — added `<None Update="Fixtures\**" CopyToOutputDirectory="PreserveNewest" />` so the fixtures exist next to the test DLL, not just in source.
+
+Also updated `.github/workflows/ci.yml`: an `apt-get install -y gcc-arm-none-eabi make` step before `Restore`, exactly the line the Stage 3 plan's own Step 3 checkpoint text called for. This is deliberately the **only** piece of the Embedded toolset CI will ever exercise end-to-end (§2.7) — flash/GDB/serial need real hardware no hosted runner has, permanently, not just until some future CI upgrade.
+
+Verified, not assumed:
+
+- `dotnet build` — 0 warnings, 0 errors, all 13 projects.
+- `dotnet test` — **85 total** (was 77; +8 new: 5 `BuildToolsTests` + 3 `DescriptionConventionTests`), all passing, including the real-compiler round trips against both fixtures. `GetBuildLog_AfterFailedBuild_ContainsTheRealCompilerError` specifically asserts the literal `undefined_symbol_that_does_not_exist` string is present in the captured output — not just "exit code nonzero," but that the actual diagnostic reaches the agent.
+- Confirmed via `git add --dry-run` that fixture `build/` output stays untracked (the repo's existing generic `build/` `.gitignore` pattern already covers it — no new ignore rule needed).
+
+State: Build area complete and verified, including a real CI-path check (the toolchain-install line), on this machine. **Not yet verified: that this same CI step actually passes on a hosted GitHub Actions runner** — worth confirming on the next push rather than assuming apt's `gcc-arm-none-eabi` package resolves identically there. Awaiting: permission for Step 4 (physical-action gating) — still hardware-independent, next in the reordered sequence.
