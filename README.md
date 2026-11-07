@@ -168,6 +168,10 @@ Read the source material, not a summary of it:
 - [`Documentation/Brainstorms/`](Documentation/Brainstorms/) — the open-ended exploration that fed the roadmap before anything was scoped into a plan.
 - [`docs/DECISIONS.md`](docs/DECISIONS.md) — the append-only architecture decision log (Michael Nygard's ADR format): context, decision, consequences, superseded-not-edited.
 
+## How this project is built
+
+Work is driven by GitHub issues: an issue moves through staged labels (design → discussion → plan → implement → verify), and an AI agent works only as far as the current stage allows, leaving session notes as it goes. The full rules are in [`docs/AI_WORKFLOW.md`](docs/AI_WORKFLOW.md).
+
 ## Status
 
 - **Plan 001** — MVP foundation: Host/Core/Basics, DI conventions, stdio transport, honest CI. *Done.*
