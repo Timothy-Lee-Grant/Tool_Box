@@ -1,0 +1,23 @@
+name: Bug
+description: Something that worked, or should work, doesn't.
+title: "[Bug] "
+labels: ["type:bug", "stage-2-discussion"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened vs. what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Commands, transport (stdio/HTTP), the tool call that was made.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / output
+      render: text

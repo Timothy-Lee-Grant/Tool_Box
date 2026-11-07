@@ -1,0 +1,59 @@
+# Queue runner (optional, phase 2): Claude picks up the oldest open issue labeled `claude:queued`
+# and works one session on it, following CLAUDE.md. This is the "Claude checks for open issues on
+# its own" mode. It's manual-run only until the interactive mode (claude.yml) feels trustworthy;
+# then uncomment the schedule below.
+name: Claude queue
+
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - cron: "17 */6 * * *"   # every 6 hours (UTC), off the hour
+
+concurrency:
+  group: claude-queue
+  cancel-in-progress: false
+
+jobs:
+  work-one-issue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          base_branch: next
+          branch_prefix: claude/
+          additional_permissions: |
+            actions: read
+          prompt: |
+            You are the Tool_Box queue runner for ${{ github.repository }}. Follow CLAUDE.md exactly.
+
+            1. Run: gh issue list --label "claude:queued" --state open --search "sort:created-asc" --limit 1 --json number,title
+               If nothing comes back, stop without doing anything else.
+            2. Claim the issue: gh issue edit <n> --remove-label "claude:queued" --add-label "claude:working"
+            3. Read it in full: gh issue view <n> --comments
+            4. Do exactly what the issue's stage-* label allows (CLAUDE.md, "How work happens").
+               Never push to main. Any code goes on branch claude/issue-<n>-<slug>, with a PR into next.
+            5. Finish with a "## Session notes" comment, then:
+               gh issue edit <n> --remove-label "claude:working"
+               If you need Timothy, also add the label needs-timothy.
+            Work on ONE issue only.
+          claude_args: |
+            --max-turns 40
+            --allowedTools "Read,Write,Edit,Glob,Grep,Task,Bash(dotnet restore:*),Bash(dotnet build:*),Bash(dotnet test:*),Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git add:*),Bash(git commit:*),Bash(git checkout:*),Bash(git push:*),Bash(gh issue list:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue edit:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr create:*),Bash(gh pr list:*),Bash(gh run list:*),Bash(gh run view:*)"

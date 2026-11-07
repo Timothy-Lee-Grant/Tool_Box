@@ -1,79 +1,41 @@
-# Project Idea
-This project is to help me (Timothy Grant) learn important concepts to become a software engineer at Microsoft. The purpose is learning.
+# Tool_Box — global context
 
-# persona.md
-My persona.md file tells you who I am, and my goals.
+This file is loaded into **every** agent session, so it holds only what is true for every task. Everything task-specific lives in the **GitHub issue** being worked on. Keep this file short; if you are tempted to add something that only matters for one feature, put it in that feature's issue instead.
 
-# Rules 
-- When you generate a markdown file, it should be in the format of (number of sequence in folder)-(Title). This way it is easy to organize the documents in time sequenced order. To keep the ordering, the (number of sequence in folder) should be three digits (eg, 001, 002, 003, ..., 035, etc). Then in the document, you should have the first line telling the time of creation in the format of Year_Month_Day_Hour_Min-(Title), where min hour day month year are all numbers so the organization is easy.
-- Also feel free to update my persona.md file when you find new information about me which you think will be helpful to capture. My persona.md is a living document which keeps a wholistic idea of who I am, my current state, my goals, and the projects which I have worked on (and the skills which those projects demonstraite). I use this persona.md file in many projects, including one which gives the agent an understanding of my situation, so we can think of ideas for projects and other things I need to do to accomplish my goals (like getting into Microsoft as a software engineer). You can edit this persona.md file at any time if you see that a change would be helpful, regardless of if the user explicitly asks in their prompt.
+## Purpose
+Timothy Grant's MCP server platform, built to learn what a software engineer at Microsoft needs to know. Learning is the goal, so explain *why*, not just *what*. `persona.md` describes Timothy — read it when a task involves teaching, writing docs for him, or updating it.
 
-# Documentation Folders
-## Brainstorms
-Documents in this folder are for coming up with creative new ideas and outlining general directions and possibilities which might be able to be taken with this project. Things in this folder are speculitive in nature.
+## Project map
+- `src/ToolBox.Host` — the single binary; stdio or streamable HTTP chosen at startup (ADR-007).
+- `src/ToolBox.Core` — shared plumbing. Must never reference a specific toolset (ADR-003).
+- `src/ToolSets/ToolBox.<Name>` — one class library per toolset, registered with one `Add<Name>Toolset()` call (ADR-005); may add its own hosted service (ADR-010).
+- `tests/ToolBox.<Project>.Tests` — xUnit, one test project per source project.
+- `viewer/` — Three.js browser viewer for the Voxel world.
+- `docs/DECISIONS.md` — append-only ADR log. `docs/TOOL_CATALOG.md` — every tool. `docs/AI_WORKFLOW.md` — how we work.
+- `Documentation/` — Timothy's learning record. Before writing anything there, read `Documentation/CONVENTIONS.md`.
 
-## Learning
-Documents in this folder should be in the form of a lecture. Your job is to go though my project and identify any gaps in my knowledge. You can find gaps by looking at my comments which tell what I was thinking at the time, by looking to see if I made mistakes, to see if I am implementing things in a suboptimal way, etc
+## Commands
+- Build: `dotnet build --configuration Release -warnaserror` (warnings are errors; `Directory.Build.props` pins net10.0).
+- Test: `dotnet test --configuration Release`
+- Run: `dotnet run --project src/ToolBox.Host` (stdio) · `docker compose up` (HTTP + viewer)
 
-Based on your analysis, create a full markdown file in the form of a lecture which teaches all of the concepts which you feel I am missing. The document can include diagrams and anything else you feel would be helpful in the goal of helping me fully understand the concepts.
+## Branches — non-negotiable
+- `main` is linked from Timothy's résumé and must always work. **Never commit or push to `main`, and never open a PR into `main`** unless the issue explicitly says so.
+- `next` is the integration branch for the rebuild. PRs target `next`.
+- Work branches: `claude/issue-<number>-<short-slug>`.
 
-## SkillGapAnalysis
-Documents in this folder are for archive purposes. I will use documents in here to be able to keep track over time of gaps which have been found in myself, and be able to come up with mitigation plans.
-
-## ProjectCaptures
-
-This folder will contain one single file which are used to capture the state of the project at the time requested. This document should only be appended onto by logging a new state. Don't append to this document unless the user specificlly asks for it. When the user ask to add documents to all folders in documentation, they do not mean this one unless specificlly said to do this targeted file. This document should be mainly for concuption of other llm models. The point of this file is to be able to capture and articulate the state of the project, design difficulties I am having, find stories which might be useful to me in interviews. highlight things which I should high light. I will copy and paste this file into my other projects to help me track projects which I am doing and help me prepare for interviews. I am targeting Microsoft as a software engineer.
-
-## ImplementationPlans
-
-Documents in this folder will be for implementation plans which the AI will create for themselves to be able to reviewed by Timothy, and then with permission from Timothy followed though step by step. 
-
-These documents will have multiple stages. Within each stage, a dynamic conversation will take place. The way it will work is that each markdown will appended in a chronological order. There will be a discussion between Timothy and the AI to communicate between each other and come to an eventually conclusion. Then the next stage will begin.
-
-### Stage 1 (Design Documentation)
-
-Timothy outlines the goals for this implementation plan. 
-
-### Stage 2 (Discussion)
-
-Stage 2 will be a dynamic conversation between Timothy and the AI agent. Discussions will take place in describing the feature desired to be implemented, potential issues, technical difficulties, architecture designs and considerations, and anything else which should be discussed.
-
-### Stage 3 (Implementation Planning)
-
-Stage 3 will be where the AI takes the conversation and direction described in Stage 2, and creates a full detailed implementation plan. This will be a step by step explanation as to what the AI is planning on doing, how it plans to accomplish it, and everything broken down into sub-steps. This way when we eventually reach stage 4, it will be easy for Timothy to give permission for steps at a time and verify.
-
-#### Stage 3 Discussion Subsection
-
-This subsection will be where the dynamic conversation takes place. This will be another chronological discussion where Timothy and the AI discuss the Implementation Plan developed by the AI. 
-
-As this conversation goes back and forth, the AI will make changes to the Implementation Plan. (Notice that this means that the implementation plan will be dynamic and not a chronological timeline.)
-
-### Stage 4 (Implementation)
-
-Stage 4 will begin once Stage 3 has been agreed upon. This stage will consist of Timothy giving step by step permissions for the ai to implement each of the steps which it had outlined in the Stage 3. 
-
-This will also be a chronological discussion where the AI gives a summary for each of the steps which it attempted to do. The things which were changed, any problems or unexpected issues which arose, and the state of the system at at this point.
-
-### Stage 5 (Final Results, Testing, Verficiation)
-
-Once the implementation has been fully finished, it needs to be tested and verified. This stage will be the location for verification documentation.
-
-## ImplementationPlans (Release Plan)
-
-This document will follow the same workflow as the normal 'Implementation Plan' but the structure of the document and the purpose will be completely different. This documents purpose is to get the project ready for release.
-
-This will be a markdown file in the same location as the other Implementation Plans and follow the same number incrementing rule, but the title will be Release-X.0 
-
-### Release Checklist
-
-Create a checklist of all items which need to be done, tested, verified, understood ect.
-
-This is also where the clean up and polish tasks can be done to ensure that the product is ready for release.
-
-### Packaging Plan
-
-The project needs to be able to be packaged after its release. We need to come up with a strategy as to how we can release this product to the public. The point of this is to actually deploy it.
-
-### Presentation
-
-Because I make YouTube vidoes, I want to do a video where I showcase the project and give a demonstration. I will then put a link to that video on my resume. In this section, outline the entirety of what I should cover and discuss in the video.
+## How work happens
+1. **The issue is the task's memory.** Start every session by reading the whole issue — body *and* every comment. Don't keep task notes anywhere else.
+2. **The issue's `stage-*` label says what you're allowed to do** (these are the five stages of Timothy's planning process):
+   - `stage-1-design` — Timothy is still writing the goal. Ask clarifying questions only.
+   - `stage-2-discussion` — discuss trade-offs and options in comments. No code, no plan yet.
+   - `stage-3-plan` — post a numbered, step-by-step plan as a comment (delegate to the `planner` agent). No code until Timothy approves.
+   - `stage-4-implement` — implement the approved plan. Do only the steps Timothy approved ("do steps 1–2"), then stop and report.
+   - `stage-5-verify` — show evidence it works (CI run, test output, screenshots/logs); use the `reviewer` agent.
+   No stage label → treat as `stage-2-discussion`.
+3. **End every session with a comment headed `## Session notes`**: what changed, decisions made (and why), open questions, the exact next step. That comment is how the next session (yours or another agent's) picks up the thread.
+4. **If you're blocked or something is ambiguous, ask in a comment, add the `needs-timothy` label, and stop.** Don't guess on architecture or anything that's hard to undo.
+5. **Let CI do the testing.** Build once before pushing; after that, push and read the CI results (`gh run list` / `gh run view --log-failed`) instead of re-running the full suite yourself — CI time costs no tokens.
+6. Code changes go in small PRs to `next` with `Closes #<n>` in the body. Fill in the PR template.
+7. A decision with lasting consequences gets an ADR appended to `docs/DECISIONS.md` in the same PR.
+8. When a task introduces a concept Timothy hasn't used before, say so in the session notes. Lectures are written by the `lecturer` agent, and only when the issue asks for one.
