@@ -172,6 +172,16 @@ Read the source material, not a summary of it:
 
 Work is driven by GitHub issues: an issue moves through staged labels (design → discussion → plan → implement → verify), and an AI agent works only as far as the current stage allows, leaving session notes as it goes. The full rules are in [`docs/AI_WORKFLOW.md`](docs/AI_WORKFLOW.md).
 
+## v1 archive
+
+Version 1 — a simple MCP server with the Basics and Voxel toolsets — is preserved as the Git tag [`v1.0.2`](https://github.com/Timothy-Lee-Grant/Tool_Box/releases/tag/v1.0.2) and its GitHub Release, rather than as a copy of the code in a folder (reasoning: ADR-014 in [`docs/DECISIONS.md`](docs/DECISIONS.md)). To browse or run it:
+
+```bash
+git checkout v1.0.2
+```
+
+Its lectures, plans and decisions are in [`Documentation/`](Documentation/) and [`docs/DECISIONS.md`](docs/DECISIONS.md), which stay in place on every branch.
+
 ## Status
 
 - **Plan 001** — MVP foundation: Host/Core/Basics, DI conventions, stdio transport, honest CI. *Done.*
