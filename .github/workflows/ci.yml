@@ -21,6 +21,15 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      # Plan 006, Step 3: BuildToolsTests shells out to a real arm-none-eabi-gcc
+      # against fixture firmware — not mocked, same "prove it against the real
+      # tool" instinct as everything else in this repo's test suite. This is
+      # also the one piece of the Embedded toolset CI can ever exercise
+      # end-to-end (plan 006 §2.7) — flash/GDB/serial need real hardware CI
+      # will never have.
+      - name: Install ARM embedded toolchain
+        run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi make
+
       - name: Restore
         run: dotnet restore
 

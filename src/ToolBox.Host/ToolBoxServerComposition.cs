@@ -24,7 +24,7 @@ internal static class ToolBoxServerComposition
             // Toolsets compose below — one line each (plan 001, ADR-005).
             .AddBasicsToolset()
             // First write-classified toolset and first with its own companion
-            // infrastructure (a viewer broadcast service) — ADR-010, ADR-011.
+            // infrastructure (a viewer broadcast service) — ADR-010, ADR-011. 
             .AddVoxelToolset();
     }
 }
