@@ -15,6 +15,7 @@ COPY src/ToolBox.Core/ToolBox.Core.csproj        src/ToolBox.Core/
 COPY src/ToolBox.Host/ToolBox.Host.csproj        src/ToolBox.Host/
 COPY src/ToolSets/ToolBox.Basics/ToolBox.Basics.csproj src/ToolSets/ToolBox.Basics/
 COPY src/ToolSets/ToolBox.Voxel/ToolBox.Voxel.csproj   src/ToolSets/ToolBox.Voxel/
+COPY src/ToolSets/ToolBox.Embedded/ToolBox.Embedded.csproj src/ToolSets/ToolBox.Embedded/
 RUN dotnet restore src/ToolBox.Host/ToolBox.Host.csproj
 
 COPY src/ ./src/
