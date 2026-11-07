@@ -95,3 +95,6 @@ TestResults/
 *.userosscache
 *.sln.docstates
 
+
+# Claude Code — personal settings stay local; shared ones live in .claude/settings.json
+.claude/settings.local.json

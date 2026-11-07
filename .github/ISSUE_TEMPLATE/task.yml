@@ -1,0 +1,55 @@
+name: Task
+description: One unit of work — becomes the memory for the agent that works on it.
+title: "[Task] "
+labels: ["type:task", "stage-1-design"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This issue **is** the task's memory: the agent reads the body plus every comment before it acts.
+        Write the goal here; decisions belong in comments. Move it between `stage-*` labels as it progresses,
+        and add the `claude` label (or comment `@claude ...`) to hand it to the agent.
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal (Stage 1)
+      description: What you want and why. Plain language is fine.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: How we'll both know it's done. Prefer things CI or a command can check.
+      value: |
+        - [ ] 
+        - [ ] CI is green
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Relevant files, ADRs, related issues (#n), links. Only what this task needs.
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: What the agent must NOT do as part of this task.
+  - type: dropdown
+    id: autonomy
+    attributes:
+      label: How far may the agent go without checking in?
+      options:
+        - Discuss only — no plan, no code
+        - Plan, then wait for my approval (default)
+        - Plan and implement, then ask me to review
+      default: 1
+    validations:
+      required: true
+  - type: checkboxes
+    id: learning
+    attributes:
+      label: Learning
+      options:
+        - label: Write a lecture in Documentation/Learning when this is done

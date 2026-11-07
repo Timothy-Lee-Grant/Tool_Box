@@ -1,0 +1,25 @@
+name: Epic
+description: A larger outcome made of several tasks. Usually one per milestone.
+title: "[Epic] "
+labels: ["type:epic"]
+body:
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome
+      description: What is true when this epic is finished?
+    validations:
+      required: true
+  - type: textarea
+    id: tasks
+    attributes:
+      label: Tasks
+      description: One line per task issue. GitHub ticks them off as they close.
+      value: |
+        - [ ] #
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Constraints / decisions that apply to every task in this epic
