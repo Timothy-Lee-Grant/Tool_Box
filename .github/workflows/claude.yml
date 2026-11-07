@@ -25,13 +25,21 @@ concurrency:
 
 jobs:
   claude:
-    # Filter here so unrelated issue activity doesn't spin up a runner.
+    # Filter here so unrelated issue activity doesn't spin up a runner, and only the repo owner
+    # can start a run (the action also rejects users without write access, but this check means a
+    # stranger's "@claude" never even starts a runner). Edited comments are deliberately ignored —
+    # to re-ask, post a new comment.
     if: |
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
-      (github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'claude') ||
-      (github.event_name == 'issues' && github.event.action != 'labeled' &&
+      (github.event_name == 'issue_comment' && github.event.comment.author_association == 'OWNER' &&
+        contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && github.event.comment.author_association == 'OWNER' &&
+        contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review' && github.event.review.author_association == 'OWNER' &&
+        contains(github.event.review.body, '@claude')) ||
+      (github.event_name == 'issues' && github.event.sender.login == github.repository_owner &&
+        github.event.action == 'labeled' && github.event.label.name == 'claude') ||
+      (github.event_name == 'issues' && github.event.issue.author_association == 'OWNER' &&
+        github.event.action != 'labeled' &&
         (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -64,4 +72,4 @@ jobs:
             actions: read
           claude_args: |
             --max-turns 40
-            --allowedTools "Read,Write,Edit,Glob,Grep,Task,Bash(dotnet restore:*),Bash(dotnet build:*),Bash(dotnet test:*),Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git add:*),Bash(git commit:*),Bash(git checkout:*),Bash(git push:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue edit:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr create:*),Bash(gh pr list:*),Bash(gh run list:*),Bash(gh run view:*)"
+            --allowedTools "Read,Write,Edit,Glob,Grep,Task,Bash(dotnet restore:*),Bash(dotnet build:*),Bash(dotnet test:*),Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git add:*),Bash(git commit:*),Bash(git checkout:*),Bash(git switch:*),Bash(git fetch:*),Bash(git merge:*),Bash(git branch:*),Bash(git mv:*),Bash(git rm:*),Bash(git push:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue edit:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr create:*),Bash(gh pr list:*),Bash(gh run list:*),Bash(gh run view:*)"
