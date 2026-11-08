@@ -26,7 +26,7 @@ flowchart LR
       V["Voxel<br/>12 shape tools + VoxelWorld"]
       E["Embedded<br/>build tools (off by default)"]
     end
-    VW["VoxelViewerBroadcastService<br/>(WebSocket :8090)"]
+    VW["VoxelViewerBroadcastService<br/>(WebSocket :8090, loopback by default)"]
   end
 
   Browser["Browser viewer<br/>viewer/index.html"]
@@ -77,7 +77,9 @@ sequenceDiagram
   Note over K: unknown id → throw, listing the valid ids (fail fast)
   S->>DI: add ToolsetStartupLogger, AddMcpServer()
   P->>H: Build() + Run()
+  Note over P,H: HTTP mode: PortTable defaults + validation first;<br/>then probe the MCP port before Kestrel binds (taken → exit 3)
   H-->>H: stderr log "Enabled toolsets: basics"
+  H-->>H: viewer binds its port, or reports components.viewer = unavailable
   Note over DI,H: after Build() the service collection is FROZEN —<br/>changing toolsets today means a restart
 ```
 
@@ -92,12 +94,47 @@ An empty `TOOLBOX_TOOLSETS` enables nothing (the startup log says `(none)`).
 
 ## 4. Ports and endpoints
 
-| What | Where | Notes |
-|---|---|---|
-| MCP over stdio | stdin/stdout | No port. stdout is reserved for protocol messages, so all logs go to stderr (ADR-004) |
-| MCP over HTTP | `:8080` `/mcp` | Stateless streamable HTTP. Never publish it beyond a trusted network (ADR-008/011) |
-| Health check | `:8080` `/health` | `{"status","version","toolsets","uptime"}` |
-| Voxel viewer feed | `:8090` (falls back to 8091–8093) `/voxel/` | Only exists when Voxel is enabled (ADR-012) |
+### Port table
+
+Defined in one place, `src/ToolBox.Host/Ports/PortTable.cs`. Every port and bind address is configuration; there is no automatic reassignment (ADR-016).
+
+| Service | Default port | Default bind | Config keys | Env vars | If the port is taken |
+|---|---|---|---|---|---|
+| MCP + `/health` (`/mcp`) | 8080 | `127.0.0.1` | `Ports:Mcp:Port`, `Ports:Mcp:Address` | `TOOLBOX_Ports__Mcp__Port`, `TOOLBOX_Ports__Mcp__Address` | **Fail fast:** one stderr line naming the service, port and key, exit code 3 |
+| Admin API (#35) | 8095 | `127.0.0.1` (non-loopback is refused at startup) | `Ports:Admin:Port`, `Ports:Admin:Address` | `TOOLBOX_Ports__Admin__Port`, `TOOLBOX_Ports__Admin__Address` | Table entry only until #35 adds the listener and its probe |
+| Voxel viewer feed (`/voxel/`) | 8090 | `127.0.0.1` (answers `127.0.0.1` and `localhost`) | `Ports:Viewer:Port`, `Ports:Viewer:Address` | `TOOLBOX_Ports__Viewer__Port`, `TOOLBOX_Ports__Viewer__Address` | **Degrade visibly:** MCP keeps running, `/health` shows `components.viewer = "unavailable: port 8090 in use"` |
+| MCP over stdio | none | none | none | none | stdout is reserved for protocol messages; logs go to stderr (ADR-004) |
+
+- Port `0` means "let the OS pick" and skips the probe. Tests use it.
+- `0.0.0.0` means all interfaces. Containers set it explicitly in the `Dockerfile` and `docker-compose.yml`, because a loopback socket inside a container is unreachable from published ports (ADR-016, revisiting ADR-012).
+- The viewer only exists when Voxel is enabled (ADR-012, ADR-015). Never publish the MCP port beyond a trusted network (ADR-008/011).
+- Voxel viewer: `viewer/index.html` connects to `ws://localhost:8090/voxel/`.
+
+### Config precedence (highest wins)
+
+```mermaid
+flowchart TB
+  P1["1. Test overrideUrl, e.g. http://127.0.0.1:0 (MCP only)"]
+  P2["2. --urls / ASPNETCORE_URLS (MCP only, kept for compatibility)"]
+  P3["3. Test in-memory settings"]
+  P4["4. Command line: --Ports:Mcp:Port=9000"]
+  P5["5. TOOLBOX_ env: TOOLBOX_Ports__Mcp__Port"]
+  P6["6. appsettings.json"]
+  P7["7. PortTable code defaults<br/>Mcp 8080 · Admin 8095 · Viewer 8090 · bind 127.0.0.1"]
+  P1 --> P2 --> P3 --> P4 --> P5 --> P6 --> P7
+```
+
+Rows 3–7 are ordinary layered .NET configuration and apply to all three services. Rows 1–2 are MCP-only escape hatches; if `ASPNETCORE_URLS` and `Ports:Mcp:*` are both set, the URLs win and a warning is logged.
+
+### Health check and exit codes
+
+`GET /health` returns `{"status","components","version","toolsets","uptime"}`. `status` is `"ok"` when every enabled component is healthy and `"degraded"` when an optional one (today: the viewer) is down. Both are HTTP 200, so the container healthcheck keeps passing. `components` is `{}` when no component reports (for example Voxel disabled).
+
+| Exit code | Meaning |
+|---|---|
+| 0 | Clean shutdown |
+| 2 | Unknown transport |
+| 3 | A required port (MCP) is already in use |
 
 ## 5. Branches and releases
 

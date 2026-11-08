@@ -23,6 +23,7 @@ flowchart LR
 - [ ] Targets `next`, not `main`
 - [ ] CI is green
 - [ ] `docs/ARCHITECTURE.md` updated if structure changed
+- [ ] `README.md` updated if user-facing behaviour changed (settings, ports, commands, outputs)
 - [ ] New or changed tools are documented in `docs/TOOL_CATALOG.md`
 - [ ] ADR appended to `docs/DECISIONS.md` if a lasting decision was made
 - [ ] `## Session notes` comment posted on the issue

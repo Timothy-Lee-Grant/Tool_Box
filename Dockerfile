@@ -49,13 +49,18 @@ COPY --from=build /app .
 # Container identity: HTTP transport, all interfaces (the compose network needs
 # to reach us; "localhost" inside a container means only the container itself).
 ENV TOOLBOX_TRANSPORT=http
-ENV ASPNETCORE_URLS=http://0.0.0.0:8080
+#
+# Bind addresses are explicit configuration (ADR-016): the default is loopback, and a
+# container opts in to all interfaces here. Ports keep their defaults (MCP 8080, viewer 8090).
+# This replaces ASPNETCORE_URLS, which would otherwise outrank the Ports settings.
+ENV TOOLBOX_Ports__Mcp__Address=0.0.0.0
+ENV TOOLBOX_Ports__Viewer__Address=0.0.0.0
 EXPOSE 8080
 
-# The Voxel toolset's viewer-broadcast WebSocket (VoxelViewerBroadcastService,
-# first of CandidatePorts 8090-8093) — independent of the MCP endpoint above,
-# documentation only (EXPOSE doesn't publish anything by itself); an actual
-# compose file still has to add its own `ports:` mapping to reach it.
+# The Voxel toolset's viewer-broadcast WebSocket (VoxelViewerBroadcastService, one fixed
+# port, no fallback) — independent of the MCP endpoint above, documentation only
+# (EXPOSE doesn't publish anything by itself); an actual compose file still has to add
+# its own `ports:` mapping to reach it.
 EXPOSE 8090
 
 # Non-root: the .NET images define APP_UID for exactly this line.
