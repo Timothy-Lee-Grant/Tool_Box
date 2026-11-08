@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using ToolBox.Core.DependencyInjection;
 
 namespace ToolBox.Host;
@@ -21,7 +22,13 @@ internal static class ToolBoxServerComposition
 
         // Only enabled entries are invoked, so a disabled toolset's tools and hosted
         // services are never registered. Unknown ids throw (fail loud, like the transport check).
-        ToolBoxCatalog.Create().Compose(services, ToolBoxCatalog.ResolveEnabled(configuration));
+        var enabled = ToolBoxCatalog.ResolveEnabled(configuration);
+        ToolBoxCatalog.Create().Compose(services, enabled);
+
+        // Startup line on stderr (ADR-004) naming what this process actually composed.
+        var ids = enabled.Select(e => e.ToLowerInvariant()).Distinct().ToArray();
+        services.AddHostedService(sp => new ToolsetStartupLogger(
+            ids, sp.GetRequiredService<ILogger<ToolsetStartupLogger>>()));
 
         // Idempotent (proved by the AddMcpServer_CalledTwice_IsSafe test); this call also
         // guarantees a builder for the transport even when no toolset is enabled.

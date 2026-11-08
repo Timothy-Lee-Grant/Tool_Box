@@ -9,8 +9,9 @@ namespace ToolBox.Embedded;
 /// <c>VoxelToolsetExtensions.AddVoxelToolset()</c>. Only <see cref="BuildTools"/>
 /// is registered so far (plan 006 Step 3) — Steps 5-7 add the `physical`-tier
 /// tool types (flash/debug/serial), each gated behind
-/// <see cref="PhysicalActionGate.HardwareActionsAllowed"/> (Step 4), and Step 8
-/// is what actually calls this from <c>ToolBoxServerComposition</c>.
+/// <see cref="PhysicalActionGate.HardwareActionsAllowed"/> (Step 4). The Host
+/// composes this toolset through <see cref="CatalogEntry"/> only when it is listed in
+/// <c>TOOLBOX_TOOLSETS</c> / <c>Toolsets:Enabled</c>; it is off by default (ADR-015).
 /// </summary>
 public static class EmbeddedToolsetExtensions
 {

@@ -10,6 +10,9 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <!-- Single source of the release version: becomes the assembly version, which
+         ServerInfoProvider reports and /health serves (shows as 1.1.0.0). -->
+    <Version>1.1.0</Version>
     <!-- Professional-base rule: a warning is a bug we haven't admitted to yet -->
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
