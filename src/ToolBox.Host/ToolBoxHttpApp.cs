@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using ToolBox.Core;
 using ToolBox.Core.Logging;
@@ -15,7 +16,8 @@ namespace ToolBox.Host;
 /// </summary>
 internal static class ToolBoxHttpApp
 {
-    public static WebApplication Build(string[] args, string? overrideUrl = null)
+    public static WebApplication Build(string[] args, string? overrideUrl = null,
+        IReadOnlyDictionary<string, string?>? settings = null)
     {
         var builder = WebApplication.CreateBuilder(args);
 
@@ -35,8 +37,15 @@ internal static class ToolBoxHttpApp
             builder.WebHost.UseUrls("http://localhost:8080");
         }
 
+        builder.Configuration.AddEnvironmentVariables(prefix: "TOOLBOX_");
+        if (settings is not null)
+        {
+            // Added last so tests can override everything, env vars included.
+            builder.Configuration.AddInMemoryCollection(settings);
+        }
+
         builder.Services
-            .AddToolBoxServer()
+            .AddToolBoxServer(builder.Configuration)
             .WithHttpTransport(options =>
             {
                 // SDK-recommended for servers that don't need server-to-client requests
