@@ -35,6 +35,23 @@ public class PortConflictTests
     private static VoxelViewerBroadcastService Viewer(WebApplication app) =>
         app.Services.GetServices<IHostedService>().OfType<VoxelViewerBroadcastService>().Single();
 
+    /// <summary>
+    /// The viewer is a BackgroundService: its status is set shortly AFTER StartAsync returns
+    /// (the host does not wait for ExecuteAsync to run), so tests wait for it instead of racing.
+    /// </summary>
+    private static async Task<string> ViewerStatusAsync(WebApplication app)
+    {
+        var registry = app.Services.GetRequiredService<ComponentStatusRegistry>();
+        DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+        while (!registry.Snapshot().ContainsKey("viewer"))
+        {
+            Assert.True(DateTime.UtcNow < deadline, "viewer status was never set");
+            await Task.Delay(10);
+        }
+
+        return registry.Snapshot()["viewer"];
+    }
+
     // ---- Step 3: MCP (R1) ----
 
     [Fact]
@@ -90,7 +107,7 @@ public class PortConflictTests
         await app.StartAsync();
         try
         {
-            Assert.Equal("ok", app.Services.GetRequiredService<ComponentStatusRegistry>().Snapshot()["viewer"]);
+            Assert.Equal("ok", await ViewerStatusAsync(app));
             int port = Viewer(app).Port!.Value;
 
             // viewer/index.html connects to "localhost"; scripts may use the literal IP.
@@ -123,13 +140,78 @@ public class PortConflictTests
         try
         {
             Assert.Equal($"unavailable: port {taken} in use",
-                app.Services.GetRequiredService<ComponentStatusRegistry>().Snapshot()["viewer"]);
+                await ViewerStatusAsync(app));
             Assert.Null(Viewer(app).Port); // and it did not hop to 8091+
         }
         finally
         {
             await app.StopAsync();
         }
+    }
+
+    // ---- Step 5: /health components ----
+
+    private static async Task<System.Text.Json.JsonElement> GetHealthAsync(WebApplication app, bool viewerExpected = true)
+    {
+        if (viewerExpected)
+        {
+            await ViewerStatusAsync(app); // wait until the viewer has reported, then read /health
+        }
+
+        using var http = new HttpClient();
+        string url = app.Urls.First().TrimEnd('/');
+        HttpResponseMessage response = await http.GetAsync($"{url}/health");
+        response.EnsureSuccessStatusCode(); // degraded is still HTTP 200
+        return System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.Clone();
+    }
+
+    [Fact]
+    public async Task Health_HealthyViewer_IsOkWithComponent()
+    {
+        var app = ToolBoxHttpApp.Build([], overrideUrl: "http://127.0.0.1:0", settings: Settings(0, viewerPort: 0));
+        await using var _ = app;
+        await app.StartAsync();
+        try
+        {
+            var health = await GetHealthAsync(app);
+            Assert.Equal("ok", health.GetProperty("status").GetString());
+            Assert.Equal("ok", health.GetProperty("components").GetProperty("viewer").GetString());
+        }
+        finally { await app.StopAsync(); }
+    }
+
+    [Fact]
+    public async Task Health_DegradedViewer_ReportsDegradedStillHttp200()
+    {
+        using TcpListener holder = Occupy(out int taken);
+        var app = ToolBoxHttpApp.Build([], overrideUrl: "http://127.0.0.1:0", settings: Settings(0, viewerPort: taken));
+        await using var _ = app;
+        await app.StartAsync();
+        try
+        {
+            var health = await GetHealthAsync(app);
+            Assert.Equal("degraded", health.GetProperty("status").GetString());
+            Assert.Equal($"unavailable: port {taken} in use",
+                health.GetProperty("components").GetProperty("viewer").GetString());
+        }
+        finally { await app.StopAsync(); }
+    }
+
+    [Fact]
+    public async Task Health_VoxelDisabled_HasNoViewerComponent()
+    {
+        var settings = Settings(0, viewerPort: 0);
+        settings["TOOLSETS"] = "basics"; // same key as TOOLBOX_TOOLSETS (ToolBoxCatalog.EnvKey)
+        var app = ToolBoxHttpApp.Build([], overrideUrl: "http://127.0.0.1:0", settings: settings);
+        await using var _ = app;
+        await app.StartAsync();
+        try
+        {
+            var health = await GetHealthAsync(app, viewerExpected: false);
+            Assert.Equal("ok", health.GetProperty("status").GetString());
+            Assert.False(health.GetProperty("components").TryGetProperty("viewer", out System.Text.Json.JsonElement viewerStatus));
+        }
+        finally { await app.StopAsync(); }
     }
 
     [Fact]
@@ -141,7 +223,7 @@ public class PortConflictTests
         await app.StartAsync();
         try
         {
-            Assert.Equal("ok", app.Services.GetRequiredService<ComponentStatusRegistry>().Snapshot()["viewer"]);
+            Assert.Equal("ok", await ViewerStatusAsync(app));
 
             using var client = new ClientWebSocket();
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));

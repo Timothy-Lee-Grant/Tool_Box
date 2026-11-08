@@ -42,7 +42,7 @@ Not a list of buzzwords — every line below is backed by something you can actu
 
 ```
   MCP client (Claude Desktop / Code / Inspector / LangGraph agent)
-        │  stdio  ─or─  streamable HTTP (:8080/mcp, /health)
+        │  stdio  ─or─  streamable HTTP (127.0.0.1:8080/mcp, /health)
         ▼
   ToolBox.Host        thin composition root: config → toolsets → transport
         │
@@ -51,7 +51,7 @@ Not a list of buzzwords — every line below is backed by something you can actu
   ToolBox.Core        shared plumbing: bounded output, server info, logging rules
 ```
 
-The Voxel toolset also brings its own companion infrastructure — a `BackgroundService` that broadcasts world changes over a WebSocket (`:8090`, independent of and never colliding with the MCP HTTP transport's own `:8080`) to the live browser viewer shown above. It binds all interfaces, so it works identically run directly on a host or published from a container (ADR-012) — a separate, deliberate exposure decision from the MCP endpoint's, since the viewer channel is receive-only and grants no tool-execution capability. Design rules that held across both toolsets: toolsets never know about the protocol or each other; the Host never contains domain logic; all tool output is bounded; a stdio server's stdout belongs to the protocol — logs go to stderr, always, checked on every change, not assumed.
+The Voxel toolset also brings its own companion infrastructure — a `BackgroundService` that broadcasts world changes over a WebSocket (`:8090`, independent of the MCP HTTP transport's own `:8080`) to the live browser viewer shown above. It binds loopback only by default; a container opts in to all interfaces explicitly (ADR-016, which revises ADR-012). If its port is taken the viewer is reported as unavailable instead of taking the server down. Ports, bind addresses and conflict behaviour: [`docs/ARCHITECTURE.md` §4](docs/ARCHITECTURE.md#4-ports-and-endpoints). Design rules that held across both toolsets: toolsets never know about the protocol or each other; the Host never contains domain logic; all tool output is bounded; a stdio server's stdout belongs to the protocol — logs go to stderr, always, checked on every change, not assumed.
 
 ## Quickstart
 
@@ -138,7 +138,41 @@ One binary, two wires, selected at startup — precedence `--transport` flag > `
 | Transport | Start | Use for |
 |---|---|---|
 | stdio (default) | client launches the DLL | Claude Desktop, Claude Code — local, client-as-parent |
-| streamable HTTP | `dotnet run --project src/ToolBox.Host -- --transport http` | remote/containerized consumers (LLM_Monitor); serves `/mcp` + `/health` on `:8080`, stateless |
+| streamable HTTP | `dotnet run --project src/ToolBox.Host -- --transport http` | remote/containerized consumers (LLM_Monitor); serves `/mcp` + `/health` on `127.0.0.1:8080` by default, stateless |
+
+## Configuration
+
+Every setting can come from `appsettings.json`, a `TOOLBOX_` environment variable (use `__` for `:`), or the command line. Later sources win: defaults < `appsettings.json` < `TOOLBOX_` env < command line.
+
+**Toolsets** — which toolsets are enabled (ADR-015). Default: `basics,voxel`. A disabled toolset is never registered, so its tools and background services do not exist. `Embedded` is off by default. An unknown id fails startup and lists the valid ones. Changing toolsets needs a restart.
+
+```bash
+TOOLBOX_TOOLSETS=basics dotnet run --project src/ToolBox.Host -- --transport http
+```
+
+**Ports** — one table for all services (ADR-016). The full table, precedence diagram and conflict behaviour are in [`docs/ARCHITECTURE.md` §4](docs/ARCHITECTURE.md#4-ports-and-endpoints).
+
+| Setting | Default | Env var |
+|---|---|---|
+| `Ports:Mcp:Port` / `Ports:Mcp:Address` | `8080` / `127.0.0.1` | `TOOLBOX_Ports__Mcp__Port` / `__Address` |
+| `Ports:Viewer:Port` / `Ports:Viewer:Address` | `8090` / `127.0.0.1` | `TOOLBOX_Ports__Viewer__Port` / `__Address` |
+| `Ports:Admin:Port` / `Ports:Admin:Address` | `8095` / `127.0.0.1` (must be loopback) | `TOOLBOX_Ports__Admin__Port` / `__Address` |
+
+```bash
+TOOLBOX_Ports__Mcp__Port=8085 dotnet run --project src/ToolBox.Host -- --transport http
+```
+
+- **The default bind is now `127.0.0.1`** (it used to be `localhost` for MCP, and all interfaces for the viewer). Only your machine can connect. Set the address to `0.0.0.0` to listen on every interface; the Docker image and `docker-compose.yml` already do.
+- `ASPNETCORE_URLS` / `--urls` still work for MCP and win over `Ports:Mcp:*`.
+- **`/health`** returns `status` (`ok`, or `degraded` when an optional component such as the viewer is down; always HTTP 200) and a `components` map, e.g. `{"viewer":"unavailable: port 8090 in use"}`.
+
+**Exit codes**
+
+| Code | Meaning |
+|---|---|
+| 0 | Clean shutdown |
+| 2 | Unknown transport (valid: `stdio`, `http`) |
+| 3 | A required port is already in use. The message names the service, port and the setting to change. A taken viewer port does not exit; it shows up in `/health`. |
 
 ## Containerized
 
@@ -149,7 +183,7 @@ docker compose up --build        # healthy at http://localhost:8081/health
 
 Multi-stage, non-root, layer-cache-ordered Dockerfile; CI builds the image and polls `/health` on every push, so "the container boots" is a continuously-verified claim, not documentation that quietly drifted from reality. Consuming this from another project (LLM_Monitor's LangGraph agent, via `langchain-mcp-adapters`): [`docs/LLM_MONITOR_INTEGRATION.md`](docs/LLM_MONITOR_INTEGRATION.md).
 
-The Voxel viewer works through the container too — this compose file already publishes `8090:8090` alongside the MCP port, so `viewer/index.html` (its hardcoded `ws://127.0.0.1:8090/voxel/`) connects the same way whether the Host is running via `dotnet run` or inside Docker.
+The Voxel viewer works through the container too — this compose file publishes `8090:8090` alongside the MCP port and sets both bind addresses to `0.0.0.0` explicitly (a loopback socket inside a container can't be reached through published ports), so `viewer/index.html` (`ws://localhost:8090/voxel/`) connects the same way whether the Host is running via `dotnet run` or inside Docker.
 
 ## The engineering process behind this repo
 

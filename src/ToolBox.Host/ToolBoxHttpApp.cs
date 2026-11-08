@@ -6,6 +6,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using ToolBox.Core;
 using Microsoft.Extensions.Logging;
+using ToolBox.Core.Health;
 using ToolBox.Core.Logging;
 using ToolBox.Core.Ports;
 using ToolBox.Host.Ports;
@@ -95,12 +96,17 @@ internal static class ToolBoxHttpApp
         // Plain HTTP healthcheck — curl-shaped on purpose, for compose/orchestrator
         // probes (Stage 2 decision 7). Not an MCP call: health must be checkable by
         // tools that have never heard of MCP.
-        app.MapGet("/health", (ServerInfoProvider info) =>
+        app.MapGet("/health", (ServerInfoProvider info, ComponentStatusRegistry registry) =>
         {
             ServerInfo snapshot = info.Get();
+            // Optional components (e.g. the Voxel viewer) report here. One being down makes the
+            // host "degraded" but never unhealthy: still HTTP 200, so the compose healthcheck passes.
+            IReadOnlyDictionary<string, string> components = registry.Snapshot();
+            bool degraded = components.Values.Any(v => v != "ok");
             return Results.Ok(new
             {
-                status = "ok",
+                status = degraded ? "degraded" : "ok",
+                components,
                 version = snapshot.Version,
                 toolsets = snapshot.Toolsets,
                 uptime = snapshot.Uptime.ToString(),
