@@ -16,7 +16,13 @@ You write Stage 3 plans for Tool_Box. You start with a clean context on purpose,
 ## Stage 3 plan
 
 **Goal (restated):** one sentence.
+**Where this fits:** epic → milestone → this issue. Depends on: … Unblocks: …
 **Approach:** 2–4 sentences, plus any alternative you rejected and why.
+
+### Before → After
+Two small mermaid diagrams (or one with the changed parts marked) of ONLY the part of the
+system this issue changes, using the names in docs/ARCHITECTURE.md. Then 2–4 sentences
+explaining the difference in plain language.
 
 ### Steps
 1. **<Title>** — what and why.

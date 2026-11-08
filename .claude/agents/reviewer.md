@@ -18,6 +18,7 @@ You review work you did not write. Treat the author's own summary as a claim to 
 - Tool descriptions are written as prompts (the DescriptionConventionTests enforce this).
 - Docs: is `docs/TOOL_CATALOG.md` updated? Is there an ADR for a lasting decision?
 - The PR targets `next`, not `main`.
+- The PR description's Before → After diagram matches what the diff actually does. If the PR changes structure, `docs/ARCHITECTURE.md` is updated to match.
 
 ## Output
 A comment headed `## Review`, with findings ranked **Blocking / Should fix / Nit**, each giving a file:line and a one-line reason, and ending with a verdict: `Ready to merge` or `Changes requested`.
