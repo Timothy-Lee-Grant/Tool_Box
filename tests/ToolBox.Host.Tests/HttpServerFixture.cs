@@ -18,7 +18,8 @@ public sealed class HttpServerFixture : IAsyncLifetime
     public async Task InitializeAsync()
     {
         // Port 0 = "OS, give me any free port" — parallel CI runs can never collide.
-        _app = ToolBoxHttpApp.Build([], overrideUrl: "http://127.0.0.1:0");
+        _app = ToolBoxHttpApp.Build([], overrideUrl: "http://127.0.0.1:0",
+            settings: new Dictionary<string, string?> { ["Ports:Viewer:Port"] = "0" });
         await _app.StartAsync();
 
         // After StartAsync, app.Urls holds the RESOLVED address (real port, not 0).

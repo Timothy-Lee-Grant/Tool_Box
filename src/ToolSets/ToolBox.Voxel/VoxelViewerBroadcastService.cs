@@ -2,8 +2,11 @@ using System.Net;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using ToolBox.Core.Health;
+using ToolBox.Core.Ports;
 
 namespace ToolBox.Voxel;
 
@@ -18,13 +21,20 @@ namespace ToolBox.Voxel;
 /// The agent never talks to this — it only ever talks to <see cref="VoxelTools"/>.
 /// This class exists purely for human eyes watching a browser tab.
 /// </summary>
-public sealed class VoxelViewerBroadcastService(VoxelWorld world, ILogger<VoxelViewerBroadcastService> logger)
+public sealed class VoxelViewerBroadcastService(
+    VoxelWorld world,
+    IConfiguration configuration,
+    ComponentStatusRegistry status,
+    ILogger<VoxelViewerBroadcastService> logger)
     : BackgroundService
 {
-    // Deliberately outside the MCP HTTP transport's own port (8080, ToolBoxHttpApp.cs) —
-    // under --transport http both would run in the same process. Fallback list mirrors
-    // the reference implementation this is modeled on (Documentation/ImplementationPlans/003 §2.7).
-    private static readonly int[] CandidatePorts = [8090, 8091, 8092, 8093];
+    /// <summary>Config keys written by the Host's port table (issue #37). Voxel only READS
+    /// them, so the defaults live in one place (the Host) and are never duplicated here.</summary>
+    public const string PortKey = "Ports:Viewer:Port";
+    public const string AddressKey = "Ports:Viewer:Address";
+
+    /// <summary>The name this component reports under in the status registry (and so in /health).</summary>
+    public const string ComponentName = "viewer";
 
     private static readonly JsonSerializerOptions WireOptions = new(JsonSerializerDefaults.Web);
 
@@ -34,18 +44,16 @@ public sealed class VoxelViewerBroadcastService(VoxelWorld world, ILogger<VoxelV
     private HttpListener? _listener;
 
     /// <summary>The port actually bound, once <see cref="ExecuteAsync"/> has started —
-    /// null before startup, or if every candidate port was taken.</summary>
+    /// null before startup, or if the viewer could not start (see the component status).</summary>
     public int? Port { get; private set; }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // No awaits before this point, so the status is set before the host finishes starting.
         _listener = StartListener();
         if (_listener is null)
         {
-            logger.LogWarning(
-                "No free port for the voxel viewer among {Ports} — MCP tools still work, viewer disabled.",
-                string.Join(", ", CandidatePorts));
-            return;
+            return; // Degraded, not dead: StartListener recorded why. MCP tools keep working.
         }
 
         // HttpListener.GetContextAsync() has no CancellationToken overload; Stop()-ing
@@ -86,33 +94,90 @@ public sealed class VoxelViewerBroadcastService(VoxelWorld world, ILogger<VoxelV
         }
     }
 
+    /// <summary>
+    /// Binds the ONE configured port (no fallback: the browser page and Docker both assume
+    /// it). The viewer is optional (R2), so any failure records a visible status and
+    /// returns null instead of throwing; the MCP server keeps running.
+    /// </summary>
     private HttpListener? StartListener()
     {
-        foreach (int port in CandidatePorts)
+        if (!int.TryParse(configuration[PortKey], out int port) || port is < 0 or > 65535
+            || !IPAddress.TryParse(configuration[AddressKey], out IPAddress? address))
         {
-            var listener = new HttpListener();
-            // "+" (HttpListener's strong wildcard), not a literal "127.0.0.1": loopback-only
-            // binds are unreachable through Docker's port publishing, because -p forwards
-            // traffic addressed to the container's real interface, which a loopback-bound
-            // socket never sees. This is the same fix ToolBoxHttpApp.cs already needed for
-            // the MCP endpoint (ASPNETCORE_URLS=http://0.0.0.0:8080), just for HttpListener's
-            // own prefix syntax instead of Kestrel's. Binding "+" still accepts connections
-            // via 127.0.0.1 too, so the direct-on-host (stdio) path is unaffected.
-            listener.Prefixes.Add($"http://+:{port}/voxel/");
-            try
-            {
-                listener.Start();
-                Port = port;
-                logger.LogInformation("Voxel viewer listening on port {Port} (path /voxel/, all interfaces)", port);
-                return listener;
-            }
-            catch (HttpListenerException)
-            {
-                // Port taken — try the next candidate.
-            }
+            return Degrade($"unavailable: {PortKey}/{AddressKey} not configured", null);
         }
 
+        try
+        {
+            // HttpListener cannot bind port 0 itself, so for "OS picks" (tests) find a free
+            // port first. Small race, but it only affects port-0 callers.
+            if (port == 0)
+            {
+                port = PortProbe.FindFreePort(address);
+            }
+
+            // Pre-flight probe on the SAME address as the real bind (D2) ...
+            PortProbe.Check(address, port, "viewer", PortKey);
+        }
+        catch (PortConflictException ex)
+        {
+            return Degrade($"unavailable: port {port} in use", ex);
+        }
+
+        var listener = new HttpListener();
+        foreach (string prefix in BuildPrefixes(address, port))
+        {
+            listener.Prefixes.Add(prefix);
+        }
+
+        try
+        {
+            listener.Start();
+        }
+        catch (HttpListenerException ex)
+        {
+            listener.Close();
+            // ... and the real bind's failure is the backstop if we lost the race (D1).
+            return PortConflictException.IsAddressInUse(ex)
+                ? Degrade($"unavailable: port {port} in use", ex)
+                : Degrade($"unavailable: {ex.Message}", ex);
+        }
+
+        Port = port;
+        status.Set(ComponentName, "ok");
+        logger.LogInformation("Voxel viewer listening on {Address}:{Port} (path /voxel/)", address, port);
+        return listener;
+    }
+
+    private HttpListener? Degrade(string statusText, Exception? ex)
+    {
+        status.Set(ComponentName, statusText);
+        logger.LogWarning(ex, "Voxel viewer disabled ({Status}); MCP tools still work.", statusText);
         return null;
+    }
+
+    /// <summary>
+    /// HttpListener prefixes for a bind address. 0.0.0.0 maps to the strong wildcard "+"
+    /// (needed behind Docker's port publishing, ADR-012). A loopback address gets TWO
+    /// prefixes, the literal IP and "localhost", because HttpListener matches the
+    /// request's Host header and viewer/index.html connects to ws://localhost:8090.
+    /// </summary>
+    public static IReadOnlyList<string> BuildPrefixes(IPAddress address, int port)
+    {
+        if (address.Equals(IPAddress.Any) || address.Equals(IPAddress.IPv6Any))
+        {
+            return [$"http://+:{port}/voxel/"];
+        }
+
+        string host = address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
+            ? $"[{address}]" : address.ToString();
+        var prefixes = new List<string> { $"http://{host}:{port}/voxel/" };
+        if (IPAddress.IsLoopback(address))
+        {
+            prefixes.Add($"http://localhost:{port}/voxel/");
+        }
+
+        return prefixes;
     }
 
     private async Task AcceptSocketAsync(HttpListenerContext context, CancellationToken stoppingToken)

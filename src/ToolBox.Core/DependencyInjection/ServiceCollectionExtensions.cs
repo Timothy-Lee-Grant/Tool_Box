@@ -20,6 +20,8 @@ public static class ServiceCollectionExtensions
 
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<ServerInfoProvider>();
+        // Where optional components (e.g. the voxel viewer) report their health.
+        services.TryAddSingleton<ToolBox.Core.Health.ComponentStatusRegistry>();
         return services;
     }
 

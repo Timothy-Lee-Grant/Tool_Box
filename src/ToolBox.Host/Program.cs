@@ -2,6 +2,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using ToolBox.Core.Logging;
+using ToolBox.Core.Ports;
 using ToolBox.Host;
 
 // ToolBox.Host — thin composition root.
@@ -29,8 +30,17 @@ switch (transport)
         return 0;
 
     case "http":
-        await ToolBoxHttpApp.Build(args).RunAsync();
-        return 0;
+        try
+        {
+            await ToolBoxHttpApp.RunAsync(ToolBoxHttpApp.Build(args));
+            return 0;
+        }
+        catch (PortConflictException ex)
+        {
+            // One clear line on stderr (ADR-004), then a dedicated exit code (2 is a bad transport).
+            Console.Error.WriteLine(ex.Message);
+            return 3;
+        }
 
     default:
         // Fail fast and loud — never guess a transport. (Error text goes to stderr,
@@ -49,6 +59,9 @@ static async Task RunStdioAsync(string[] args)
 
     // Same TOOLBOX_ env-var layer the bootstrap uses, so TOOLBOX_TOOLSETS reaches the catalog.
     builder.Configuration.AddEnvironmentVariables(prefix: "TOOLBOX_");
+
+    // Same lowest-priority Ports defaults as HTTP mode, so the viewer reads one table.
+    ToolBox.Host.Ports.PortTable.AddDefaults(builder.Configuration);
 
     builder.Services
         .AddToolBoxServer(builder.Configuration)

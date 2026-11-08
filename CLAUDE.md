@@ -11,6 +11,7 @@ Timothy Grant's MCP server platform, built to learn what a software engineer at 
 - `src/ToolSets/ToolBox.<Name>` — one class library per toolset, registered with one `Add<Name>Toolset()` call (ADR-005); may add its own hosted service (ADR-010).
 - `tests/ToolBox.<Project>.Tests` — xUnit, one test project per source project.
 - `viewer/` — Three.js browser viewer for the Voxel world.
+- `docs/ARCHITECTURE.md` — the current system and roadmap, in diagrams. Read it first when a task touches structure.
 - `docs/DECISIONS.md` — append-only ADR log. `docs/TOOL_CATALOG.md` — every tool. `docs/AI_WORKFLOW.md` — how we work.
 - `Documentation/` — Timothy's learning record. Before writing anything there, read `Documentation/CONVENTIONS.md`.
 
@@ -33,9 +34,10 @@ Timothy Grant's MCP server platform, built to learn what a software engineer at 
    - `stage-4-implement` — implement the approved plan. Do only the steps Timothy approved ("do steps 1–2"), then stop and report.
    - `stage-5-verify` — show evidence it works (CI run, test output, screenshots/logs); use the `reviewer` agent.
    No stage label → treat as `stage-2-discussion`.
-3. **End every session with a comment headed `## Session notes`**: what changed, decisions made (and why), open questions, the exact next step. That comment is how the next session (yours or another agent's) picks up the thread.
+3. **End every session with a comment headed `## Session notes`**: what changed, decisions made (and why), open questions, the exact next step, and one line: **System state now:** what works after this session that didn't before. That comment is how the next session (yours or another agent's) picks up the thread.
 4. **If you're blocked or something is ambiguous, ask in a comment, add the `needs-timothy` label, and stop.** Don't guess on architecture or anything that's hard to undo.
 5. **Let CI do the testing.** Build once before pushing; after that, push and read the CI results (`gh run list` / `gh run view --log-failed`) instead of re-running the full suite yourself — CI time costs no tokens. To check CI, use `gh run list --branch <branch>` and `gh run view <id> --log-failed` (not `gh pr checks`). If CI is still running when you finish, say so in the session notes and stop; don't wait.
 6. Code changes go in small PRs to `next` with `Closes #<n>` in the body. Fill in the PR template.
 7. A decision with lasting consequences gets an ADR appended to `docs/DECISIONS.md` in the same PR.
 8. When a task introduces a concept Timothy hasn't used before, say so in the session notes. Lectures are written by the `lecturer` agent, and only when the issue asks for one.
+9. **Show, don't just tell.** Every Stage 3 plan and every PR description contains: **Where this fits** (epic → milestone → this issue; what it depends on and what it unblocks), a **Before → After** mermaid diagram of the part of the system that changes, and a plain-language explanation of each change. If a PR changes structure (projects, runtime components, ports, config keys, startup flow), it updates `docs/ARCHITECTURE.md` in the same PR. If a PR changes user-facing behaviour (settings, ports, commands, outputs), it updates `README.md` in the same PR.
