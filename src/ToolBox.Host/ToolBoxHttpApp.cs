@@ -4,7 +4,9 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using ToolBox.Core;
+using Microsoft.Extensions.Logging;
 using ToolBox.Core.Logging;
+using ToolBox.Host.Ports;
 
 namespace ToolBox.Host;
 
@@ -24,24 +26,45 @@ internal static class ToolBoxHttpApp
         // Stage 2 decision 3: the stderr rule stays uniform across transports.
         builder.Logging.UseStderrOnly();
 
+        // Configuration layers, lowest → highest (issue #37 precedence):
+        //   PortTable defaults < appsettings < TOOLBOX_ env < command line < test settings.
+        // CreateBuilder already added appsettings/env/command line; the TOOLBOX_ env layer
+        // would otherwise outrank the command line, so re-add the command line after it.
+        builder.Configuration.AddEnvironmentVariables(prefix: "TOOLBOX_");
+        builder.Configuration.AddCommandLine(args);
+        if (settings is not null)
+        {
+            // Added last so tests can override everything, env vars included.
+            builder.Configuration.AddInMemoryCollection(settings);
+        }
+
+        // Did anyone set the MCP port/address explicitly? Checked BEFORE the defaults
+        // layer exists, so a non-null value means a real source set it.
+        bool mcpExplicit = builder.Configuration[PortTable.PortKey(PortTable.Mcp)] is not null
+            || builder.Configuration[PortTable.AddressKey(PortTable.Mcp)] is not null;
+        PortTable.AddDefaults(builder.Configuration);
+
+        // Validates everything (bad IP, range, duplicate ports, non-loopback admin) and
+        // fails startup loudly before any socket is opened.
+        PortSettings ports = PortSettings.Resolve(builder.Configuration);
+
+        // MCP URL precedence: overrideUrl (tests) > ASPNETCORE_URLS / --urls > Ports:Mcp:*.
+        bool urlsSetElsewhere = !string.IsNullOrEmpty(builder.Configuration[WebHostDefaults.ServerUrlsKey]);
+        bool warnUrlsWin = false;
         if (overrideUrl is not null)
         {
             // Tests pass http://127.0.0.1:0 — port 0 asks the OS for any free port,
             // so parallel CI runs can never collide on a fixed number.
             builder.WebHost.UseUrls(overrideUrl);
         }
-        else if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ASPNETCORE_URLS")))
+        else if (urlsSetElsewhere)
         {
-            // Default port 8080 unless the environment says otherwise
-            // (containers set ASPNETCORE_URLS=http://0.0.0.0:8080; plan 002 Step 4).
-            builder.WebHost.UseUrls("http://localhost:8080");
+            // Kept for compatibility (the Dockerfile sets ASPNETCORE_URLS). Left untouched.
+            warnUrlsWin = mcpExplicit;
         }
-
-        builder.Configuration.AddEnvironmentVariables(prefix: "TOOLBOX_");
-        if (settings is not null)
+        else
         {
-            // Added last so tests can override everything, env vars included.
-            builder.Configuration.AddInMemoryCollection(settings);
+            builder.WebHost.UseUrls(ports.Mcp.Url);
         }
 
         builder.Services
@@ -56,6 +79,13 @@ internal static class ToolBoxHttpApp
             });
 
         var app = builder.Build();
+
+        if (warnUrlsWin)
+        {
+            app.Logger.LogWarning(
+                "Both ASPNETCORE_URLS/--urls and {PortKey}/{AddressKey} are set; the URLs win for MCP.",
+                PortTable.PortKey(PortTable.Mcp), PortTable.AddressKey(PortTable.Mcp));
+        }
 
         // The MCP endpoint (streamable HTTP).
         app.MapMcp("/mcp");

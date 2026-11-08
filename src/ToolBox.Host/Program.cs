@@ -50,6 +50,9 @@ static async Task RunStdioAsync(string[] args)
     // Same TOOLBOX_ env-var layer the bootstrap uses, so TOOLBOX_TOOLSETS reaches the catalog.
     builder.Configuration.AddEnvironmentVariables(prefix: "TOOLBOX_");
 
+    // Same lowest-priority Ports defaults as HTTP mode, so the viewer reads one table.
+    ToolBox.Host.Ports.PortTable.AddDefaults(builder.Configuration);
+
     builder.Services
         .AddToolBoxServer(builder.Configuration)
         .WithStdioServerTransport();
