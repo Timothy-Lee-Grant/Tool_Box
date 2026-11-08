@@ -35,7 +35,7 @@ Timothy Grant's MCP server platform, built to learn what a software engineer at 
    No stage label → treat as `stage-2-discussion`.
 3. **End every session with a comment headed `## Session notes`**: what changed, decisions made (and why), open questions, the exact next step. That comment is how the next session (yours or another agent's) picks up the thread.
 4. **If you're blocked or something is ambiguous, ask in a comment, add the `needs-timothy` label, and stop.** Don't guess on architecture or anything that's hard to undo.
-5. **Let CI do the testing.** Build once before pushing; after that, push and read the CI results (`gh run list` / `gh run view --log-failed`) instead of re-running the full suite yourself — CI time costs no tokens.
+5. **Let CI do the testing.** Build once before pushing; after that, push and read the CI results (`gh run list` / `gh run view --log-failed`) instead of re-running the full suite yourself — CI time costs no tokens. To check CI, use `gh run list --branch <branch>` and `gh run view <id> --log-failed` (not `gh pr checks`). If CI is still running when you finish, say so in the session notes and stop; don't wait.
 6. Code changes go in small PRs to `next` with `Closes #<n>` in the body. Fill in the PR template.
 7. A decision with lasting consequences gets an ADR appended to `docs/DECISIONS.md` in the same PR.
 8. When a task introduces a concept Timothy hasn't used before, say so in the session notes. Lectures are written by the `lecturer` agent, and only when the issue asks for one.
