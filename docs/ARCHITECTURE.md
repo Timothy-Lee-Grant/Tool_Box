@@ -177,3 +177,22 @@ flowchart LR
   end
   Agents["Claude CLI · Copilot"] -- "MCP<br/>DATA PLANE" --> HOST
 ```
+
+## 7. v2 decisions
+
+These twelve decisions apply to every task in the v2 epic. They are copied from [epic #23](https://github.com/Timothy-Lee-Grant/Tool_Box/issues/23) so agents see them without reading the epic. **The epic is the source of truth; update both together.**
+
+| # | Question | Decision |
+|---|---|---|
+| 1 | GUI technology | Avalonia; "View world" falls back to the default browser |
+| 2 | Where the Host lives | Long-lived background service; the GUI connects to it |
+| 3 | "Off" for voxel | Save the world to disk, stop the service |
+| 4 | Embedded toolset | Out of the first version |
+| 5 | Vector store | SQLite + sqlite-vec by default, pgvector as a second implementation behind the same interface |
+| 6 | Embeddings | ONNX in-process |
+| 7 | Agent changes its own settings | No, not for now (prompt-injection risk) |
+| 8 | Registering with agents | Run the agent's own CLI or show a snippet; no editing agents' config files for now |
+| 9 | Copilot target | VS Code Copilot first |
+| 10 | Viewer binding in desktop mode | Loopback only |
+| 11 | Start with OS | Later (S6) |
+| 12 | Project names | ToolBox.Desktop, ToolBox.Rag |
