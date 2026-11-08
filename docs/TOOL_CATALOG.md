@@ -14,7 +14,7 @@ Trivial connectivity and identity tools. They exist to prove the plumbing (plan 
 
 ### Notes
 
-- `server_info.toolsets` reports the toolsets loaded *in this process* — with config-driven loading this becomes deployment-dependent.
+- `server_info.toolsets` reports the toolsets loaded *in this process* — with config-driven loading it is deployment-dependent: only toolsets enabled via configuration appear (see "Enabling toolsets" below).
 - `current_time` exists because models should not guess the date; its description says so explicitly.
 
 ## Toolset: Voxel
@@ -42,6 +42,30 @@ A live-buildable voxel world (plan 003). Tools describe *form*, not coordinates 
 - **Materials are validated against a fixed palette of 12** (deliberately fewer than the reference implementation this is modeled on's 100) — an unrecognized name returns a text hint, never an exception.
 - **The agent cannot see the build.** A companion `BackgroundService` broadcasts world changes over a WebSocket (bound to all interfaces, port 8090 falling back to 8091-8093 if taken — ADR-012) to a browser viewer (`viewer/index.html`) — but that channel is one-directional, server → browser, for human eyes only. The only feedback a tool call itself returns is the text above; there is no image or vision loop back to the model. Reachable at `ws://localhost:8090/voxel/` when run directly on a host, or at `ws://<published-host>:8090/voxel/` once a container publishes that port (a separate, deliberate exposure decision from the MCP endpoint's — ADR-012).
 - The viewer works identically regardless of which MCP transport the Host is running (stdio or HTTP) — it is not part of the MCP wire at all, just infrastructure the toolset brings with it (ADR-010).
+
+## Enabling toolsets
+
+The Host composes only the toolsets that are *enabled*; a disabled toolset is never registered, so its tools are absent from `tools/list` and its hosted services (e.g. the Voxel viewer on 8090) never start (ADR-015).
+
+| Id | Toolset | Enabled by default |
+|---|---|---|
+| `basics` | Basics | yes |
+| `voxel` | Voxel | yes |
+| `embedded` | Embedded | **no** — opt in explicitly |
+
+**Config keys**
+- appsettings: `"Toolsets": { "Enabled": ["basics", "voxel"] }`
+- env var: `TOOLBOX_TOOLSETS=basics,voxel` (comma-separated, like `TOOLBOX_TRANSPORT`)
+
+**Precedence** (last wins): code default (`basics`, `voxel`) < appsettings `Toolsets:Enabled` < `TOOLBOX_TOOLSETS` < in-memory overrides (tests).
+
+**Rules**
+- Ids are case-insensitive; whitespace around commas is ignored.
+- Nothing configured → `basics`, `voxel` (identical to before the catalog existed).
+- An **empty** `TOOLBOX_TOOLSETS=` enables **nothing** — it is not "use the default".
+- An unknown id fails startup with a message listing the valid ids.
+- At startup the Host logs the enabled toolsets on stderr (ADR-004), e.g. `Enabled toolsets: basics, voxel`.
+- Changes need a restart (switching live is out of scope until S1+).
 
 ## Transport independence
 
