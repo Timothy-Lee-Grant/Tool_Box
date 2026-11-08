@@ -47,8 +47,11 @@ static async Task RunStdioAsync(string[] args)
     // Stays FIRST so no later registration can sneak a stdout logger in.
     builder.Logging.UseStderrOnly();
 
+    // Same TOOLBOX_ env-var layer the bootstrap uses, so TOOLBOX_TOOLSETS reaches the catalog.
+    builder.Configuration.AddEnvironmentVariables(prefix: "TOOLBOX_");
+
     builder.Services
-        .AddToolBoxServer()
+        .AddToolBoxServer(builder.Configuration)
         .WithStdioServerTransport();
 
     await builder.Build().RunAsync();

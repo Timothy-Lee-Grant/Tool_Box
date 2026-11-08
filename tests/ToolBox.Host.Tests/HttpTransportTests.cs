@@ -13,6 +13,7 @@ namespace ToolBox.Host.Tests;
 /// below follow the SDK's documented pattern for 1.4.x. If names moved, the compile
 /// error lands exactly here — fix against the package's XML docs, record in Stage 4.
 /// </summary>
+[Collection(VoxelViewerCollection.Name)]
 public class HttpTransportTests(HttpServerFixture fixture) : IClassFixture<HttpServerFixture>
 {
     // API verified against the SDK's v1.4 transport docs (after two wrong guesses —
