@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using ToolBox.Core;
 using ToolBox.Core.DependencyInjection;
 
 namespace ToolBox.Embedded;
@@ -13,6 +14,18 @@ namespace ToolBox.Embedded;
 /// </summary>
 public static class EmbeddedToolsetExtensions
 {
+    /// <summary>
+    /// This toolset's catalog listing (S0, #24). <c>Register</c> adds the MCP server
+    /// builder (safe to call repeatedly) and then this toolset's doorway below.
+    /// The firmware-directory lookup lives inside the doorway, so it only runs when
+    /// the Host actually enables this toolset.
+    /// </summary>
+    public static ToolsetCatalogEntry CatalogEntry { get; } = new(
+        Id: "embedded",
+        Name: "Embedded",
+        Description: "Firmware troubleshooting for a NUCLEO-F401RE (compile; hardware actions opt-in).",
+        Register: services => services.AddMcpServer().AddEmbeddedToolset());
+
     public static IMcpServerBuilder AddEmbeddedToolset(this IMcpServerBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using ToolBox.Core;
 using ToolBox.Core.DependencyInjection;
 
 namespace ToolBox.Voxel;
@@ -11,6 +12,17 @@ namespace ToolBox.Voxel;
 /// </summary>
 public static class VoxelToolsetExtensions
 {
+    /// <summary>
+    /// This toolset's catalog listing (S0, #24). <c>Register</c> adds the MCP server
+    /// builder (safe to call repeatedly) and then this toolset's doorway below.
+    /// The Host decides whether it is ever invoked.
+    /// </summary>
+    public static ToolsetCatalogEntry CatalogEntry { get; } = new(
+        Id: "voxel",
+        Name: "Voxel",
+        Description: "A live-buildable voxel world with shape primitives and a browser viewer.",
+        Register: services => services.AddMcpServer().AddVoxelToolset());
+
     public static IMcpServerBuilder AddVoxelToolset(this IMcpServerBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
