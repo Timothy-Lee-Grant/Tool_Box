@@ -33,7 +33,7 @@ public class PortConflictTests
     };
 
     private static VoxelViewerBroadcastService Viewer(WebApplication app) =>
-        app.Services.GetServices<IHostedService>().OfType<VoxelViewerBroadcastService>().Single();
+        app.Services.GetRequiredService<VoxelViewerBroadcastService>();
 
     /// <summary>
     /// The viewer is a BackgroundService: its status is set shortly AFTER StartAsync returns

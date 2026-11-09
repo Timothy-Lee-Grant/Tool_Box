@@ -1,7 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using ToolBox.Core;
 using ToolBox.Core.DependencyInjection;
+using ToolBox.Core.Toolsets;
 
 namespace ToolBox.Voxel;
 
@@ -33,11 +33,12 @@ public static class VoxelToolsetExtensions
         builder.Services.AddSingleton<VoxelWorld>();
 
         // Companion infrastructure, not a tool (plan 003, Step 4): broadcasts world
-        // changes over a raw loopback WebSocket for a browser viewer. Works identically
-        // whichever transport the Host itself runs, because both Program.cs paths
-        // (Generic Host for stdio, WebApplication for HTTP) build on the same
-        // Microsoft.Extensions.Hosting IHost.
-        builder.Services.AddHostedService<VoxelViewerBroadcastService>();
+        // changes over a raw loopback WebSocket for a browser viewer. Registration is
+        // side-effect-free (#32): the viewer is a plain singleton and VoxelLifecycle
+        // (started/stopped by the reconciler) binds and releases the port. Deliberately
+        // NOT AddHostedService: a container-started service cannot be turned off.
+        builder.Services.AddSingleton<VoxelViewerBroadcastService>();
+        builder.Services.AddSingleton<IToolsetLifecycle, VoxelLifecycle>();
 
         builder.Services.AddToolsetDescriptor(
             name: "Voxel",

@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using ToolBox.Core;
 using ToolBox.Core.DependencyInjection;
+using ToolBox.Core.Toolsets;
 
 namespace ToolBox.Embedded;
 
@@ -32,7 +33,11 @@ public static class EmbeddedToolsetExtensions
         ArgumentNullException.ThrowIfNull(builder);
 
         builder.Services.AddSingleton<EmbeddedSession>();
-        builder.Services.AddSingleton(new FirmwareDirectory(ResolveDefaultFirmwareDirectory()));
+        // Registration is side-effect-free (#32): the repo-root walk is a lazy factory and
+        // runs in EmbeddedLifecycle.StartAsync, so a missing checkout becomes a Failed
+        // toolset with a reason instead of a crash at composition time.
+        builder.Services.AddSingleton(_ => new FirmwareDirectory(ResolveDefaultFirmwareDirectory()));
+        builder.Services.AddSingleton<IToolsetLifecycle, EmbeddedLifecycle>();
 
         // TimeProvider.System is already registered by AddToolBoxCore() (Core's
         // ServiceCollectionExtensions), same clock ServerInfoProvider resolves —

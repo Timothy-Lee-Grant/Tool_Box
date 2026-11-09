@@ -117,7 +117,7 @@ public sealed class DesiredStateWiringTests : IDisposable
     }
 
     private static bool HasViewer(WebApplication app) =>
-        app.Services.GetServices<IHostedService>().OfType<VoxelViewerBroadcastService>().Any();
+        app.Services.GetServices<VoxelViewerBroadcastService>().Any();
 
     [Fact]
     public async Task FileTurnsVoxelOff()
