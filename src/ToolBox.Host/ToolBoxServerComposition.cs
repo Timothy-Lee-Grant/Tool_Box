@@ -1,7 +1,9 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using ToolBox.Core;
 using ToolBox.Core.DependencyInjection;
 using ToolBox.Core.Desired;
 using ToolBox.Core.Health;
@@ -73,6 +75,10 @@ internal static class ToolBoxServerComposition
         // Re-reads desired state on every trigger (#32 step 7), reusing #31's store and resolution.
         services.AddSingleton(new DesiredRosterSource(store, configuration, knownIds, registry, resolution));
         services.TryAddSingleton(TimeProvider.System);
+
+        // Resolves ServerInfoProvider at startup so its uptime clock starts with the host, not with
+        // the first /health or server_info call. Registered before the reconciler so it runs first.
+        services.AddHostedService<StartClockService>();
 
         // Reconciles at startup, on desired-state file change (debounced) and on manual request;
         // reconciles to nothing at shutdown. The same instance serves as the manual trigger.

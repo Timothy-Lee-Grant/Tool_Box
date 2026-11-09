@@ -32,6 +32,14 @@ public sealed class ToolsetReconciler
     private readonly TimeProvider _time;
     private readonly SemaphoreSlim _lock = new(1, 1);
     private long _requestVersion;
+    // Versions of requests still alive (waiting or running). A request is only "superseded" by a
+    // newer one that is still alive: if the newer caller was cancelled while waiting, the older
+    // request must still be applied, or neither would be.
+    private readonly SortedSet<long> _live = new();
+    private readonly object _liveLock = new();
+    // Toolsets whose Stop failed or was cancelled: the lifecycle may still hold resources, so the
+    // next reconcile (including shutdown) retries Stop even though the toolset is not "On".
+    private readonly HashSet<string> _needsStop = new(StringComparer.OrdinalIgnoreCase);
 
     /// <param name="knownIds">Every toolset id in the catalog.</param>
     /// <param name="lifecycles">Lifecycles for toolsets that have side effects; others are gate-only.</param>
@@ -51,15 +59,31 @@ public sealed class ToolsetReconciler
 
     public async Task<ReconcileResult> ReconcileAsync(IReadOnlyCollection<string> desired, CancellationToken ct = default)
     {
-        var myVersion = Interlocked.Increment(ref _requestVersion);
         var want = new HashSet<string>(desired, StringComparer.OrdinalIgnoreCase);
+        long myVersion;
+        lock (_liveLock)
+        {
+            myVersion = ++_requestVersion;
+            _live.Add(myVersion);
+        }
 
-        await _lock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            // A newer request is waiting behind us: last desired wins, skip the stale one.
-            if (Volatile.Read(ref _requestVersion) != myVersion)
-                return ReconcileResult.SupersededResult;
+            await _lock.WaitAsync(ct).ConfigureAwait(false);
+        }
+        catch
+        {
+            ForgetLive(myVersion);
+            throw;
+        }
+
+        try
+        {
+            // A newer live request is waiting behind us: last desired wins, skip the stale one.
+            lock (_liveLock)
+            {
+                if (_live.Max > myVersion) return ReconcileResult.SupersededResult;
+            }
 
             var started = new List<string>();
             var stopped = new List<string>();
@@ -71,6 +95,15 @@ public sealed class ToolsetReconciler
                 ct.ThrowIfCancellationRequested();
                 var shouldRun = want.Contains(id);
                 var status = _board.Get(id).Status;
+
+                // An earlier Stop failed or was cancelled: finish stopping before anything else.
+                if (_needsStop.Contains(id))
+                {
+                    var stopError = await StopAsync(id, ct).ConfigureAwait(false);
+                    if (stopError is not null) { failed[id] = stopError; continue; }
+                    status = ToolsetStatus.Off;
+                    if (!shouldRun) { stopped.Add(id); continue; }
+                }
 
                 if (shouldRun && status == ToolsetStatus.On) { unchanged.Add(id); continue; }
                 if (!shouldRun && status != ToolsetStatus.On)
@@ -96,7 +129,13 @@ public sealed class ToolsetReconciler
         finally
         {
             _lock.Release();
+            ForgetLive(myVersion);
         }
+    }
+
+    private void ForgetLive(long version)
+    {
+        lock (_liveLock) { _live.Remove(version); }
     }
 
     // Start order: Start succeeds, then the gate opens, so a visible tool is always a working one.
@@ -113,7 +152,10 @@ public sealed class ToolsetReconciler
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            _board.Set(id, ToolsetState.Off);
+            // The lifecycle may be half-started: not Off. Retry Stop on the next reconcile.
+            _gate.Close(id);
+            _needsStop.Add(id);
+            _board.Set(id, new ToolsetState(ToolsetStatus.Failed, "start was cancelled", _time.GetUtcNow()));
             throw;
         }
         catch (Exception ex)
@@ -132,16 +174,19 @@ public sealed class ToolsetReconciler
         {
             if (_lifecycles.TryGetValue(id, out var lifecycle))
                 await lifecycle.StopAsync(ct).ConfigureAwait(false);
+            _needsStop.Remove(id);
             _board.Set(id, ToolsetState.Off);
             return null;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            _board.Set(id, ToolsetState.Off);
+            _needsStop.Add(id);
+            _board.Set(id, new ToolsetState(ToolsetStatus.Failed, "stop was cancelled", _time.GetUtcNow()));
             throw;
         }
         catch (Exception ex)
         {
+            _needsStop.Add(id);
             return Fail(id, ex);
         }
     }

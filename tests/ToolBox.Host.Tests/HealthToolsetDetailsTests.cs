@@ -39,6 +39,7 @@ public class HealthToolsetDetailsTests
         Assert.True(basics.GetProperty("desired").GetBoolean());
         Assert.True(basics.GetProperty("effective").GetBoolean());
         Assert.Equal("on", basics.GetProperty("actual").GetString());
+        Assert.False(basics.TryGetProperty("reason", out _), "reason appears only for failed toolsets");
         Assert.Equal("ok", health.GetProperty("status").GetString());
     }
 
@@ -51,6 +52,7 @@ public class HealthToolsetDetailsTests
         var voxel = health.GetProperty("toolsetDetails").GetProperty("voxel");
         Assert.False(voxel.GetProperty("effective").GetBoolean());
         Assert.Equal("off", voxel.GetProperty("actual").GetString());
+        Assert.False(voxel.TryGetProperty("reason", out _), "reason appears only for failed toolsets");
         Assert.Equal("ok", health.GetProperty("status").GetString());
         Assert.DoesNotContain(health.GetProperty("toolsets").EnumerateArray(),
             t => string.Equals(t.GetString(), "voxel", StringComparison.OrdinalIgnoreCase));

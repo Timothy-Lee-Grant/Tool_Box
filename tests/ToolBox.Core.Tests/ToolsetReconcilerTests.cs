@@ -142,6 +142,61 @@ public class ToolsetReconcilerTests
     }
 
     [Fact]
+    public async Task FailedStop_IsRetriedOnNextReconcile_EvenWhenNoLongerDesired()
+    {
+        var (r, voxel, _) = Make();
+        await r.ReconcileAsync(new[] { "voxel" });
+        voxel.FailStop = new InvalidOperationException("stuck");
+        await r.ReconcileAsync(Array.Empty<string>());
+        voxel.FailStop = null;
+        _log.Clear();
+
+        var result = await r.ReconcileAsync(Array.Empty<string>());
+
+        Assert.Equal(new[] { "stop:voxel" }, _log);
+        Assert.Equal(new[] { "voxel" }, result.Stopped);
+        Assert.Equal(ToolsetStatus.Off, _board.Get("voxel").Status);
+    }
+
+    [Fact]
+    public async Task FailedStop_ThenDesiredAgain_StopsBeforeStarting()
+    {
+        var (r, voxel, _) = Make();
+        await r.ReconcileAsync(new[] { "voxel" });
+        voxel.FailStop = new InvalidOperationException("stuck");
+        await r.ReconcileAsync(Array.Empty<string>());
+        voxel.FailStop = null;
+        _log.Clear();
+
+        await r.ReconcileAsync(new[] { "voxel" });
+
+        Assert.Equal(new[] { "stop:voxel", "start:voxel" }, _log);
+        Assert.True(_gate.IsOn("voxel"));
+    }
+
+    [Fact]
+    public async Task CancelledWaiter_DoesNotDiscardAnOlderRequest()
+    {
+        var (r, voxel, _) = Make();
+        var release = new TaskCompletionSource();
+        voxel.StartBlocker = release.Task;
+
+        var first = r.ReconcileAsync(new[] { "voxel" });
+        while (!_log.Contains("start:voxel")) await Task.Yield();
+        var second = r.ReconcileAsync(new[] { "voxel", "basics" });
+        using var cts = new CancellationTokenSource();
+        var third = r.ReconcileAsync(new[] { "basics" }, cts.Token);
+        await cts.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => third);
+        release.SetResult();
+
+        await first;
+        var secondResult = await second;
+        Assert.False(secondResult.Superseded);
+        Assert.Equal(new[] { "basics", "voxel" }, _gate.Snapshot());
+    }
+
+    [Fact]
     public async Task UnknownDesiredId_IsReportedFailed()
     {
         var (r, _, _) = Make();

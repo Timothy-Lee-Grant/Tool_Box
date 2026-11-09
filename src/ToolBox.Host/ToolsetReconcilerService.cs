@@ -86,8 +86,18 @@ internal sealed class ToolsetReconcilerService : IHostedService, IToolsetReconci
             catch (OperationCanceledException) { /* expected on shutdown */ }
         }
 
-        var result = await _reconciler.ReconcileAsync([], cancellationToken);
-        LogFailures(result, "stop");
+        // Deliberately NOT the host's token: by now it may already be cancelled, which would make
+        // the reconciler throw before stopping anything. Own timeout instead.
+        using var stopCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        try
+        {
+            var result = await _reconciler.ReconcileAsync([], stopCts.Token);
+            LogFailures(result, "stop");
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogError("Shutdown reconcile timed out; some toolsets may not have stopped cleanly.");
+        }
     }
 
     private async Task RunAsync(CancellationToken ct)
