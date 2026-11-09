@@ -41,7 +41,12 @@ internal sealed class ToolOwners(IReadOnlyDictionary<string, IReadOnlyList<Servi
             {
                 var tool = d.ImplementationInstance as McpServerTool
                     ?? (McpServerTool?)d.ImplementationFactory?.Invoke(sp);
-                if (tool is not null) map[tool.ProtocolTool.Name] = id;
+                if (tool is null) continue;
+                var name = tool.ProtocolTool.Name;
+                if (map.TryGetValue(name, out var other) && !string.Equals(other, id, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException(
+                        $"Tool '{name}' is registered by both toolset '{other}' and '{id}'; tool names must be unique.");
+                map[name] = id;
             }
         }
 

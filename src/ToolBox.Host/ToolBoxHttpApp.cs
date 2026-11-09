@@ -114,15 +114,7 @@ internal static class ToolBoxHttpApp
                 components,
                 version = snapshot.Version,
                 toolsets = snapshot.Toolsets,
-                toolsetDetails = details.ToDictionary(
-                    kv => kv.Key,
-                    kv => new
-                    {
-                        desired = kv.Value.Desired,
-                        effective = kv.Value.Effective,
-                        actual = kv.Value.Actual,
-                        reason = kv.Value.Reason,
-                    }),
+                toolsetDetails = details,
                 uptime = snapshot.Uptime.ToString(),
             });
         });

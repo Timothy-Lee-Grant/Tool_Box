@@ -84,4 +84,9 @@ internal sealed class DesiredRosterSource
 }
 
 /// <summary>One toolset's row in /health. <c>Reason</c> is set only when <c>Actual</c> is "failed".</summary>
-internal sealed record ToolsetDetail(bool Desired, bool Effective, string Actual, string? Reason);
+internal sealed record ToolsetDetail(
+    bool Desired,
+    bool Effective,
+    string Actual,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    string? Reason);
