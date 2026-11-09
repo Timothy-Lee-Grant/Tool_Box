@@ -2,6 +2,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ToolBox.Core.DependencyInjection;
+using ToolBox.Core.Desired;
+using ToolBox.Core.Health;
 
 namespace ToolBox.Host;
 
@@ -18,12 +20,41 @@ internal static class ToolBoxServerComposition
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
+        // Created first so AddToolBoxCore's TryAdd keeps this instance and we can report to it now.
+        var registry = new ComponentStatusRegistry();
+        services.AddSingleton(registry);
         services.AddToolBoxCore();
 
+        // Desired-state file (issue #31): read once; the host never creates or writes it.
+        // Path: Desired:Path (env TOOLBOX_Desired__Path), else LocalApplicationData/ToolBox/desired-state.json.
+        string? configuredPath = configuration["Desired:Path"];
+        var store = new DesiredStateStore(string.IsNullOrWhiteSpace(configuredPath) ? null : configuredPath);
+        var loaded = store.Load();
+        if (loaded.Status == DesiredStateLoadStatus.Corrupt)
+        {
+            registry.Set("desiredState", $"corrupt: {loaded.Reason}");
+            Console.Error.WriteLine($"desired-state file {loaded.Path} is corrupt ({loaded.Reason}); using defaults.");
+        }
+        else if (loaded.Status == DesiredStateLoadStatus.Unsupported)
+        {
+            registry.Set("desiredState",
+                $"unsupported: schemaVersion {loaded.FoundVersion} (this build understands {DesiredState.CurrentSchemaVersion})");
+            Console.Error.WriteLine($"desired-state file {loaded.Path} is from a newer build; ignoring it and leaving it untouched.");
+        }
+
+        var catalog = ToolBoxCatalog.Create();
+        var resolution = EnabledResolution.Resolve(configuration, loaded.State, catalog.Entries.Select(e => e.Id));
+        foreach (var id in resolution.UnknownIds)
+        {
+            Console.Error.WriteLine($"desired-state file mentions unknown toolset '{id}'; ignoring it (kept in the file).");
+        }
+        services.AddSingleton(store);
+        services.AddSingleton(resolution);
+
         // Only enabled entries are invoked, so a disabled toolset's tools and hosted
-        // services are never registered. Unknown ids throw (fail loud, like the transport check).
-        var enabled = ToolBoxCatalog.ResolveEnabled(configuration);
-        ToolBoxCatalog.Create().Compose(services, enabled);
+        // services are never registered. Unknown ids in env/appsettings still throw (fail loud).
+        var enabled = resolution.Effective;
+        catalog.Compose(services, enabled);
 
         // Startup line on stderr (ADR-004) naming what this process actually composed.
         var ids = enabled.Select(e => e.ToLowerInvariant()).Distinct().ToArray();
