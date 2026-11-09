@@ -144,7 +144,7 @@ One binary, two wires, selected at startup — precedence `--transport` flag > `
 
 Every setting can come from `appsettings.json`, a `TOOLBOX_` environment variable (use `__` for `:`), or the command line. Later sources win: defaults < `appsettings.json` < `TOOLBOX_` env < command line.
 
-**Toolsets** — which toolsets are enabled (ADR-015). Default: `basics,voxel`. Every toolset is registered, but only enabled ones are started and visible: a disabled toolset's tools are hidden from `tools/list`, a call to one returns `toolset 'x' is off`, and its background services (e.g. the Voxel viewer on 8090) never run (ADR-018). `Embedded` is off by default. An unknown id fails startup and lists the valid ones. The roster is applied once at startup; live changes arrive in a later step of #32.
+**Toolsets** — which toolsets are enabled (ADR-015). Default: `basics,voxel`. Every toolset is registered, but only enabled ones are started and visible: a disabled toolset's tools are hidden from `tools/list`, a call to one returns `toolset 'x' is off`, and its background services (e.g. the Voxel viewer on 8090) never run (ADR-018). `Embedded` is off by default. An unknown id fails startup and lists the valid ones. The roster is applied at startup and again live when the desired-state file changes or a reconcile is requested (see the desired-state file below).
 
 ```bash
 TOOLBOX_TOOLSETS=basics dotnet run --project src/ToolBox.Host -- --transport http

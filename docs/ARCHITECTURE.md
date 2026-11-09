@@ -193,7 +193,7 @@ gitGraph
 | Phase | Milestone | What it changes in the diagrams above | Status |
 |---|---|---|---|
 | S0 | M2 | Hard-coded toolset chain → catalog + config (§1, §3) | ✅ v1.1.0 |
-| S1 | M3 | Adds a **desired-state file**, a **reconciler**, a loopback **admin API** with a token, a port table, and a background run mode. The roster becomes changeable **while running** | ⏳ next |
+| S1 | M3 | Adds a **desired-state file**, a **reconciler**, a loopback **admin API** with a token, a port table, and a background run mode. The roster becomes changeable **while running** | 🔄 reconciler core done (#32: gate, lifecycles, live file watch, `/health` status); admin API (#35), port table and background mode remain |
 | S2 | M4 | Adds the **ToolBox.Desktop** GUI (Avalonia), which talks to the admin API | — |
 | S3 | M5 | Voxel page, "View world", the world persists across off/on | — |
 | S4 | M6 | Copilot registration | — |
