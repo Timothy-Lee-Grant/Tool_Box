@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using ToolBox.Core.DependencyInjection;
 using ToolBox.Core.Desired;
@@ -69,8 +70,15 @@ internal static class ToolBoxServerComposition
             sp.GetRequiredService<ToolsetStatusBoard>(),
             TimeProvider.System));
 
-        // Reconciles to the effective roster once at startup (and to nothing at shutdown).
-        services.AddHostedService<ToolsetReconcilerService>();
+        // Re-reads desired state on every trigger (#32 step 7), reusing #31's store and resolution.
+        services.AddSingleton(new DesiredRosterSource(store, configuration, knownIds, registry, resolution));
+        services.TryAddSingleton(TimeProvider.System);
+
+        // Reconciles at startup, on desired-state file change (debounced) and on manual request;
+        // reconciles to nothing at shutdown. The same instance serves as the manual trigger.
+        services.AddSingleton<ToolsetReconcilerService>();
+        services.AddSingleton<IToolsetReconciler>(sp => sp.GetRequiredService<ToolsetReconcilerService>());
+        services.AddHostedService(sp => sp.GetRequiredService<ToolsetReconcilerService>());
 
         // Idempotent (proved by the AddMcpServer_CalledTwice_IsSafe test); this call also
         // guarantees a builder for the transport even when no toolset is enabled.

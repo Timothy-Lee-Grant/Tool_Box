@@ -125,6 +125,7 @@ flowchart LR
 - Schema: integer `schemaVersion` plus sequential migrations. A newer version is `Unsupported` and never overwritten.
 - `Load()` never throws and never creates the file. `Save()` (called by the admin API, #35, the only writer) writes a temp file in the same directory, flushes, then renames. A corrupt file is copied to `desired-state.json.bad-<UTC>` only when the next save happens.
 - Hand-editing is allowed but unsupported. The host never writes the file.
+- **Live changes (#32 step 7):** `ToolsetReconcilerService` also reconciles on a file change and on a manual `IToolsetReconciler.RequestReconcile()`. `DesiredStateWatcher` watches the file's directory (so atomic temp-file renames are seen); events are debounced (300 ms, on `TimeProvider`) into one run. `DesiredRosterSource` calls `Load()` then `EnabledResolution.Resolve` on each trigger, so env pins stay authoritative, and a corrupt or unsupported file keeps the last good roster and reports `components.desiredState`. If the directory is missing or the watcher fails, only manual requests apply.
 
 ## 4. Ports and endpoints
 
