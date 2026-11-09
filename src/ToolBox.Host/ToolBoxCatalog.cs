@@ -39,25 +39,9 @@ internal static class ToolBoxCatalog
     {
         ArgumentNullException.ThrowIfNull(configuration);
 
-        string? csv = configuration[EnvKey];
-        if (csv is not null)
-        {
-            return Split(csv);
-        }
-
-        var section = configuration.GetSection(SectionKey);
-        if (section.Exists())
-        {
-            return section.GetChildren()
-                .Select(c => c.Value)
-                .Where(v => !string.IsNullOrWhiteSpace(v))
-                .Select(v => v!.Trim())
-                .ToList();
-        }
-
-        return DefaultEnabled;
+        // No desired-state file: identical to the pre-#31 behaviour. The full layering
+        // (including the file) is EnabledResolution.Resolve.
+        return EnabledResolution.Resolve(configuration, new ToolBox.Core.Desired.DesiredState(),
+            Create().Entries.Select(e => e.Id)).Effective;
     }
-
-    private static string[] Split(string csv) =>
-        csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 }

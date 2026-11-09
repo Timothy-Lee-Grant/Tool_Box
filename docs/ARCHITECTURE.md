@@ -71,7 +71,9 @@ sequenceDiagram
 
   P->>C: build config (appsettings.json, TOOLBOX_* env vars, args)
   P->>S: AddToolBoxServer(services, config)
-  S->>K: ResolveEnabled(config) → e.g. ["basics"]
+  S->>S: DesiredStateStore(Desired:Path).Load() — read only, never throws, never writes
+  Note over S: corrupt/unsupported → defaults + components.desiredState (degraded)
+  S->>K: EnabledResolution.Resolve(config, desired) → desired + effective + pinnedBy
   S->>K: Create().Compose(services, enabled)
   K->>DI: entry.Register(services) — ONLY for enabled entries
   Note over K: unknown id → throw, listing the valid ids (fail fast)
@@ -83,14 +85,40 @@ sequenceDiagram
   Note over DI,H: after Build() the service collection is FROZEN —<br/>changing toolsets today means a restart
 ```
 
-### Where "enabled" comes from (later sources win)
+### Where "enabled" comes from (five layers, later wins)
 
 ```mermaid
 flowchart LR
-  D["Default in code<br/>basics, voxel"] --> A["appsettings.json<br/>Toolsets:Enabled"] --> EV["Env var<br/>TOOLBOX_TOOLSETS=basics,voxel"] --> T["Test overrides<br/>(in-memory)"]
+  D["1. Code default<br/>basics, voxel"] --> A["2. appsettings.json<br/>Toolsets:Enabled"]
+  A --> F["3. Desired-state file<br/>(user intent, GUI/admin-API written)<br/>enabled + opaque settings"]
+  F --> DES["DESIRED set"]
+  DES --> E["4. TOOLBOX_TOOLSETS<br/>operator pin"]
+  E --> T["5. In-memory test overrides"]
+  T --> EFF["EFFECTIVE set + pinnedBy"]
+  F -. "settings always honoured" .-> EFF
+  F -. "load status" .-> H["/health components.desiredState"]
 ```
 
-An empty `TOOLBOX_TOOLSETS` enables nothing (the startup log says `(none)`).
+- **Desired** is layers 1–3: what the user asked for. **Effective** is all layers: what is composed. The gap is reported as `pinnedBy`, so the GUI can show pinned toggles as locked.
+- The file overrides layers 1–2 per toolset id, only where `enabled` is set (absent = no opinion).
+- When `TOOLBOX_TOOLSETS` is set it is authoritative for `enabled` on **every known id** (named on, unnamed off) and all are marked pinned. Settings still come from the file. The `appsettings` list works the same way, and the file overrides it per id.
+- An empty `TOOLBOX_TOOLSETS` enables nothing (the startup log says `(none)`).
+- No file means layers 1, 2, 4 and 5 give exactly the pre-#31 result; there is no mode switch.
+- Unknown ids in the **file** are preserved on save, ignored with a stderr warning, and never fail startup. Unknown ids in the env var or appsettings still throw.
+
+### The desired-state file
+
+| OS | `LocalApplicationData` | File |
+|---|---|---|
+| Windows | `%LOCALAPPDATA%` | `%LOCALAPPDATA%\ToolBox\desired-state.json` |
+| macOS (.NET 8+) | `~/Library/Application Support` | `~/Library/Application Support/ToolBox/desired-state.json` |
+| Linux | `$XDG_DATA_HOME`, else `~/.local/share` | `~/.local/share/ToolBox/desired-state.json` |
+| Docker | skipped by default | opt in with a volume plus `TOOLBOX_Desired__Path` |
+
+- Model, versioning and store live in `ToolBox.Core/Desired/` (toolset-agnostic, ADR-003); the merge lives in `ToolBox.Host/EnabledResolution.cs`.
+- Schema: integer `schemaVersion` plus sequential migrations. A newer version is `Unsupported` and never overwritten.
+- `Load()` never throws and never creates the file. `Save()` (called by the admin API, #35, the only writer) writes a temp file in the same directory, flushes, then renames. A corrupt file is copied to `desired-state.json.bad-<UTC>` only when the next save happens.
+- Hand-editing is allowed but unsupported. The host never writes the file.
 
 ## 4. Ports and endpoints
 
@@ -108,7 +136,8 @@ Defined in one place, `src/ToolBox.Host/Ports/PortTable.cs`. Every port and bind
 - Port `0` means "let the OS pick" and skips the probe. Tests use it.
 - `0.0.0.0` means all interfaces. Containers set it explicitly in the `Dockerfile` and `docker-compose.yml`, because a loopback socket inside a container is unreachable from published ports (ADR-016, revisiting ADR-012).
 - The viewer only exists when Voxel is enabled (ADR-012, ADR-015). Never publish the MCP port beyond a trusted network (ADR-008/011).
-- Voxel viewer: `viewer/index.html` connects to `ws://localhost:8090/voxel/`.
+- Voxel viewer: `viewer/index.html` connects to `ws://127.0.0.1:8090/voxel/`.
+- Desired-state file path: `Desired:Path` (env `TOOLBOX_Desired__Path`), default `LocalApplicationData/ToolBox/desired-state.json`. Not a port, but the other deployment key the Host reads at startup (ADR-017).
 
 ### Config precedence (highest wins)
 
@@ -128,7 +157,7 @@ Rows 3–7 are ordinary layered .NET configuration and apply to all three servic
 
 ### Health check and exit codes
 
-`GET /health` returns `{"status","components","version","toolsets","uptime"}`. `status` is `"ok"` when every enabled component is healthy and `"degraded"` when an optional one (today: the viewer) is down. Both are HTTP 200, so the container healthcheck keeps passing. `components` is `{}` when no component reports (for example Voxel disabled).
+`GET /health` returns `{"status","components","version","toolsets","uptime"}`. `status` is `"ok"` when every enabled component is healthy and `"degraded"` when an optional one (today: the viewer) is down. Both are HTTP 200, so the container healthcheck keeps passing. `components` is `{}` when no component reports (for example Voxel disabled). `components.desiredState` appears only when the desired-state file is unusable: `"corrupt: <reason>"` or `"unsupported: schemaVersion N (this build understands 1)"`. A missing or valid file reports nothing; the host falls back to defaults and keeps running (HTTP 200, `degraded`).
 
 | Exit code | Meaning |
 |---|---|
@@ -177,3 +206,29 @@ flowchart LR
   end
   Agents["Claude CLI · Copilot"] -- "MCP<br/>DATA PLANE" --> HOST
 ```
+
+## 7. v2 decisions
+
+These twelve decisions apply to every task in the v2 epic. They are copied from [epic #23](https://github.com/Timothy-Lee-Grant/Tool_Box/issues/23) so agents see them without reading the epic. **The epic is the source of truth; update both together.**
+
+| # | Question | Decision |
+|---|---|---|
+| 1 | GUI technology | Avalonia; "View world" falls back to the default browser |
+| 2 | Where the Host lives | Long-lived background service; the GUI connects to it |
+| 3 | "Off" for voxel | Save the world to disk, stop the service |
+| 4 | Embedded toolset | Out of the first version |
+| 5 | Vector store | SQLite + sqlite-vec by default, pgvector as a second implementation behind the same interface |
+| 6 | Embeddings | ONNX in-process |
+| 7 | Agent changes its own settings | No, not for now (prompt-injection risk) |
+| 8 | Registering with agents | Run the agent's own CLI or show a snippet; no editing agents' config files for now |
+| 9 | Copilot target | VS Code Copilot first |
+| 10 | Viewer binding in desktop mode | Loopback only |
+| 11 | Start with OS | Later (S6) |
+| 12 | Project names | ToolBox.Desktop, ToolBox.Rag |
+
+### Decisions from #31 (desired-state file, ADR-017)
+
+- Layering: the file sits between appsettings and the `TOOLBOX_TOOLSETS` pin; the env var is authoritative for `enabled` on every known id, file settings still apply.
+- Location: `LocalApplicationData/ToolBox/desired-state.json`, override `TOOLBOX_Desired__Path`; Docker skips it by default.
+- Settings are opaque JSON in Core; no per-toolset validation until a toolset needs settings.
+- Unknown ids: preserve, warn, never fail. Corrupt file: fall back and report in `/health`. Newer schema: unreadable, never overwritten.

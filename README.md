@@ -150,6 +150,27 @@ Every setting can come from `appsettings.json`, a `TOOLBOX_` environment variabl
 TOOLBOX_TOOLSETS=basics dotnet run --project src/ToolBox.Host -- --transport http
 ```
 
+**Desired-state file** (ADR-017) — your saved intent: which toolsets are on, plus per-toolset settings. Enabled toolsets are decided, last wins: code default < `appsettings.json` < **desired-state file** < `TOOLBOX_TOOLSETS` < test overrides. `TOOLBOX_TOOLSETS` is an operator pin: when set it decides `enabled` for every toolset (named on, others off), but settings still come from the file. With no file, behaviour is unchanged.
+
+| OS | File |
+|---|---|
+| Windows | `%LOCALAPPDATA%\ToolBox\desired-state.json` |
+| macOS | `~/Library/Application Support/ToolBox/desired-state.json` |
+| Linux | `~/.local/share/ToolBox/desired-state.json` (or under `$XDG_DATA_HOME`) |
+| Docker | skipped by default |
+
+```bash
+TOOLBOX_Desired__Path=/tmp/tb/desired-state.json dotnet run --project src/ToolBox.Host -- --transport http
+```
+
+```json
+{ "schemaVersion": 1, "toolsets": { "voxel": { "enabled": false } } }
+```
+
+- The host reads the file once at startup and **never creates or writes it**; the GUI/admin API will be the writer. Hand-editing is allowed but unsupported.
+- A corrupt or newer-version file is ignored (defaults apply), left untouched, and `/health` shows `status: "degraded"` with `components.desiredState`. A missing file is normal.
+- Docker opt-in (persist toggles across restarts): add `volumes: ["toolbox-data:/data"]` and `TOOLBOX_Desired__Path=/data/desired-state.json` to the service, and declare `toolbox-data:` under top-level `volumes:`. The container runs as non-root, so the volume must be writable by it.
+
 **Ports** — one table for all services (ADR-016). The full table, precedence diagram and conflict behaviour are in [`docs/ARCHITECTURE.md` §4](docs/ARCHITECTURE.md#4-ports-and-endpoints).
 
 | Setting | Default | Env var |
@@ -164,7 +185,7 @@ TOOLBOX_Ports__Mcp__Port=8085 dotnet run --project src/ToolBox.Host -- --transpo
 
 - **The default bind is now `127.0.0.1`** (it used to be `localhost` for MCP, and all interfaces for the viewer). Only your machine can connect. Set the address to `0.0.0.0` to listen on every interface; the Docker image and `docker-compose.yml` already do.
 - `ASPNETCORE_URLS` / `--urls` still work for MCP and win over `Ports:Mcp:*`.
-- **`/health`** returns `status` (`ok`, or `degraded` when an optional component such as the viewer is down; always HTTP 200) and a `components` map, e.g. `{"viewer":"unavailable: port 8090 in use"}`.
+- **`/health`** returns `status` (`ok`, or `degraded` when an optional component such as the viewer is down; always HTTP 200) and a `components` map, e.g. `{"viewer":"unavailable: port 8090 in use"}` or `{"desiredState":"corrupt: …"}`.
 
 **Exit codes**
 
