@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using ToolBox.Core.Health;
 using ToolBox.Core.Logging;
 using ToolBox.Core.Ports;
+using ToolBox.Core.Toolsets;
 using ToolBox.Host.Ports;
 
 namespace ToolBox.Host;
@@ -96,19 +97,32 @@ internal static class ToolBoxHttpApp
         // Plain HTTP healthcheck — curl-shaped on purpose, for compose/orchestrator
         // probes (Stage 2 decision 7). Not an MCP call: health must be checkable by
         // tools that have never heard of MCP.
-        app.MapGet("/health", (ServerInfoProvider info, ComponentStatusRegistry registry) =>
+        app.MapGet("/health", (ServerInfoProvider info, ComponentStatusRegistry registry,
+            DesiredRosterSource roster, ToolsetStatusBoard board) =>
         {
             ServerInfo snapshot = info.Get();
             // Optional components (e.g. the Voxel viewer) report here. One being down makes the
             // host "degraded" but never unhealthy: still HTTP 200, so the compose healthcheck passes.
             IReadOnlyDictionary<string, string> components = registry.Snapshot();
-            bool degraded = components.Values.Any(v => v != "ok");
+            // Toolset state is kept apart from components: "off" is normal, only "failed" degrades.
+            var details = roster.Details(board);
+            bool degraded = components.Values.Any(v => v != "ok")
+                || details.Values.Any(d => d.Actual == "failed");
             return Results.Ok(new
             {
                 status = degraded ? "degraded" : "ok",
                 components,
                 version = snapshot.Version,
                 toolsets = snapshot.Toolsets,
+                toolsetDetails = details.ToDictionary(
+                    kv => kv.Key,
+                    kv => new
+                    {
+                        desired = kv.Value.Desired,
+                        effective = kv.Value.Effective,
+                        actual = kv.Value.Actual,
+                        reason = kv.Value.Reason,
+                    }),
                 uptime = snapshot.Uptime.ToString(),
             });
         });

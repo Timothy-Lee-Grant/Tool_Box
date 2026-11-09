@@ -188,7 +188,8 @@ TOOLBOX_Ports__Mcp__Port=8085 dotnet run --project src/ToolBox.Host -- --transpo
 
 - **The default bind is now `127.0.0.1`** (it used to be `localhost` for MCP, and all interfaces for the viewer). Only your machine can connect. Set the address to `0.0.0.0` to listen on every interface; the Docker image and `docker-compose.yml` already do.
 - `ASPNETCORE_URLS` / `--urls` still work for MCP and win over `Ports:Mcp:*`.
-- **`/health`** returns `status` (`ok`, or `degraded` when an optional component such as the viewer is down; always HTTP 200) and a `components` map, e.g. `{"viewer":"unavailable: port 8090 in use"}` or `{"desiredState":"corrupt: …"}`.
+- **`/health`** also returns `toolsetDetails`: per toolset `desired` and `effective` (they differ only when `TOOLBOX_TOOLSETS` pins the roster), `actual` (`off`, `starting`, `on`, `stopping` or `failed`) and, for `failed`, a `reason`. `toolsets` lists only the toolsets that are on. `off` is normal; a `failed` toolset makes `status` `degraded` while the others keep working.
+- **`/health`** returns `status` (`ok`, or `degraded` when an optional component such as the viewer is down or a toolset failed; always HTTP 200) and a `components` map, e.g. `{"viewer":"unavailable: port 8090 in use"}` or `{"desiredState":"corrupt: …"}`.
 
 **Exit codes**
 
