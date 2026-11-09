@@ -11,8 +11,13 @@ public sealed class ServerInfoProvider
     private readonly DateTimeOffset _startedAt;
     private readonly IReadOnlyList<string> _toolsetNames;
 
-    public ServerInfoProvider(TimeProvider clock, IEnumerable<ToolsetDescriptor> toolsets)
+    private readonly ToolBox.Core.Toolsets.ToolsetGate? _gate;
+
+    /// <param name="gate">When given, only toolsets the gate reports on are listed (descriptor name = toolset id, case-insensitive).</param>
+    public ServerInfoProvider(TimeProvider clock, IEnumerable<ToolsetDescriptor> toolsets,
+        ToolBox.Core.Toolsets.ToolsetGate? gate = null)
     {
+        _gate = gate;
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(toolsets);
 
@@ -23,6 +28,6 @@ public sealed class ServerInfoProvider
 
     public ServerInfo Get() => new(
         Version: typeof(ServerInfoProvider).Assembly.GetName().Version?.ToString() ?? "unknown",
-        Toolsets: _toolsetNames,
+        Toolsets: _gate is null ? _toolsetNames : _toolsetNames.Where(_gate.IsOn).ToArray(),
         Uptime: _clock.GetUtcNow() - _startedAt);
 }

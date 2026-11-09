@@ -54,7 +54,14 @@ internal static class ToolBoxServerComposition
         // Only enabled entries are invoked, so a disabled toolset's tools and hosted
         // services are never registered. Unknown ids in env/appsettings still throw (fail loud).
         var enabled = resolution.Effective;
-        catalog.Compose(services, enabled);
+        var composed = catalog.Compose(services, enabled);
+        services.AddSingleton(ToolOwners.FromDescriptors(composed));
+
+        // Interim (#32 step 5): the gate starts open for exactly what was composed, so behaviour
+        // is unchanged. Step 6 removes this; the reconciler becomes the only writer.
+        var gate = new ToolBox.Core.Toolsets.ToolsetGate();
+        foreach (var id in composed.Keys) gate.Open(id);
+        services.AddSingleton(gate);
 
         // Interim bridge (#32 step 4): starts the lifecycles of the toolsets composed above.
         services.AddHostedService<StartupLifecycleRunner>();
@@ -66,6 +73,6 @@ internal static class ToolBoxServerComposition
 
         // Idempotent (proved by the AddMcpServer_CalledTwice_IsSafe test); this call also
         // guarantees a builder for the transport even when no toolset is enabled.
-        return services.AddMcpServer();
+        return services.AddMcpServer().WithToolsetGateFilters();
     }
 }

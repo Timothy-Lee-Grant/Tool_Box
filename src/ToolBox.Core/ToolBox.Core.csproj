@@ -12,6 +12,9 @@
   <ItemGroup>
     <!-- Lets tests inject a failing file-move to prove Save leaves the old file intact. -->
     <InternalsVisibleTo Include="ToolBox.Core.Tests" />
+    <!-- Host pre-opens the gate for what it composes (interim, removed in #32 step 6); Host.Tests flips it. -->
+    <InternalsVisibleTo Include="ToolBox.Host" />
+    <InternalsVisibleTo Include="ToolBox.Host.Tests" />
   </ItemGroup>
 
 </Project>
