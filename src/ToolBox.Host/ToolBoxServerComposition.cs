@@ -1,9 +1,13 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using ToolBox.Core;
 using ToolBox.Core.DependencyInjection;
 using ToolBox.Core.Desired;
 using ToolBox.Core.Health;
+using ToolBox.Core.Toolsets;
 
 namespace ToolBox.Host;
 
@@ -51,18 +55,39 @@ internal static class ToolBoxServerComposition
         services.AddSingleton(store);
         services.AddSingleton(resolution);
 
-        // Only enabled entries are invoked, so a disabled toolset's tools and hosted
-        // services are never registered. Unknown ids in env/appsettings still throw (fail loud).
-        var enabled = resolution.Effective;
-        catalog.Compose(services, enabled);
+        // Fail loud on an unknown id in env/appsettings (ADR-015 rule, kept), then register EVERY
+        // toolset: registration is cheap and side-effect-free, and the reconciler decides what is
+        // started and visible (#32). Nothing runs until the reconciler starts it.
+        catalog.ValidateIds(resolution.Effective);
+        var composed = catalog.ComposeAll(services);
+        services.AddSingleton(ToolOwners.FromDescriptors(composed));
 
-        // Startup line on stderr (ADR-004) naming what this process actually composed.
-        var ids = enabled.Select(e => e.ToLowerInvariant()).Distinct().ToArray();
-        services.AddHostedService(sp => new ToolsetStartupLogger(
-            ids, sp.GetRequiredService<ILogger<ToolsetStartupLogger>>()));
+        // The gate (registered by AddToolBoxCore) starts closed; only the reconciler opens it.
+        var knownIds = catalog.Entries.Select(e => e.Id).ToArray();
+        services.AddSingleton<ToolsetStatusBoard>();
+        services.AddSingleton(sp => new ToolsetReconciler(
+            knownIds,
+            sp.GetServices<IToolsetLifecycle>(),
+            sp.GetRequiredService<ToolsetGate>(),
+            sp.GetRequiredService<ToolsetStatusBoard>(),
+            TimeProvider.System));
+
+        // Re-reads desired state on every trigger (#32 step 7), reusing #31's store and resolution.
+        services.AddSingleton(new DesiredRosterSource(store, configuration, knownIds, registry, resolution));
+        services.TryAddSingleton(TimeProvider.System);
+
+        // Resolves ServerInfoProvider at startup so its uptime clock starts with the host, not with
+        // the first /health or server_info call. Registered before the reconciler so it runs first.
+        services.AddHostedService<StartClockService>();
+
+        // Reconciles at startup, on desired-state file change (debounced) and on manual request;
+        // reconciles to nothing at shutdown. The same instance serves as the manual trigger.
+        services.AddSingleton<ToolsetReconcilerService>();
+        services.AddSingleton<IToolsetReconciler>(sp => sp.GetRequiredService<ToolsetReconcilerService>());
+        services.AddHostedService(sp => sp.GetRequiredService<ToolsetReconcilerService>());
 
         // Idempotent (proved by the AddMcpServer_CalledTwice_IsSafe test); this call also
         // guarantees a builder for the transport even when no toolset is enabled.
-        return services.AddMcpServer();
+        return services.AddMcpServer().WithToolsetGateFilters();
     }
 }

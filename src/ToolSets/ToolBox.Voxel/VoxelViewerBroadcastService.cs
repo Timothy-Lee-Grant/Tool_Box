@@ -3,7 +3,6 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ToolBox.Core.Health;
 using ToolBox.Core.Ports;
@@ -15,8 +14,12 @@ namespace ToolBox.Voxel;
 /// loopback WebSocket — independent of whichever MCP transport the Host itself is
 /// running. This is the "companion infrastructure" pattern from
 /// Documentation/ImplementationPlans/003 §2.7/§4: a toolset can bring more than tools,
-/// and a <see cref="BackgroundService"/> works the same under stdio or HTTP because
-/// both Program.cs paths build on the same <c>Microsoft.Extensions.Hosting</c> host.
+/// and it works the same under stdio or HTTP.
+///
+/// Since #32 step 4 this is NOT a container-started hosted service: it is a restartable
+/// component driven by <see cref="VoxelLifecycle"/> (Start binds the port, Stop releases it),
+/// so the reconciler can turn Voxel off and on without restarting the process.
+/// Stopping never touches <see cref="VoxelWorld"/>, so the build survives off→on.
 ///
 /// The agent never talks to this — it only ever talks to <see cref="VoxelTools"/>.
 /// This class exists purely for human eyes watching a browser tab.
@@ -26,7 +29,6 @@ public sealed class VoxelViewerBroadcastService(
     IConfiguration configuration,
     ComponentStatusRegistry status,
     ILogger<VoxelViewerBroadcastService> logger)
-    : BackgroundService
 {
     /// <summary>Config keys written by the Host's port table (issue #37). Voxel only READS
     /// them, so the defaults live in one place (the Host) and are never duplicated here.</summary>
@@ -41,24 +43,69 @@ public sealed class VoxelViewerBroadcastService(
     private readonly Lock _lock = new();
     private readonly List<WebSocket> _sockets = [];
 
-    private HttpListener? _listener;
+    private CancellationTokenSource? _cts;
+    private Task? _loop;
 
-    /// <summary>The port actually bound, once <see cref="ExecuteAsync"/> has started —
-    /// null before startup, or if the viewer could not start (see the component status).</summary>
+    /// <summary>The port actually bound, once <see cref="StartAsync"/> has run — null when
+    /// stopped, or if the viewer could not start (see the component status).</summary>
     public int? Port { get; private set; }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    /// <summary>
+    /// Binds the port and starts serving. The bind is synchronous, so the component status is
+    /// set when this returns. A bind failure degrades visibly and does NOT throw (ADR-016: the
+    /// viewer is optional, the toolset stays On). Calling it while running is a no-op.
+    /// </summary>
+    public Task StartAsync(CancellationToken cancellationToken = default)
     {
-        // No awaits before this point, so the status is set before the host finishes starting.
-        _listener = StartListener();
-        if (_listener is null)
+        if (_loop is not null)
         {
-            return; // Degraded, not dead: StartListener recorded why. MCP tools keep working.
+            return Task.CompletedTask;
         }
 
+        HttpListener? listener = StartListener();
+        if (listener is null)
+        {
+            return Task.CompletedTask; // Degraded, not dead: StartListener recorded why.
+        }
+
+        _cts = new CancellationTokenSource();
+        CancellationToken token = _cts.Token;
+        _loop = Task.Run(() => RunAsync(listener, token), CancellationToken.None);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Stops serving, closes viewer sockets and releases the port. Safe when never
+    /// started or already stopped. Leaves the world untouched.</summary>
+    public async Task StopAsync(CancellationToken cancellationToken = default)
+    {
+        CancellationTokenSource? cts = _cts;
+        Task? loop = _loop;
+        _cts = null;
+        _loop = null;
+        Port = null;
+
+        if (cts is not null)
+        {
+            try
+            {
+                await cts.CancelAsync();
+                await (loop ?? Task.CompletedTask).WaitAsync(cancellationToken);
+            }
+            finally
+            {
+                cts.Dispose();
+            }
+        }
+
+        // A stopped (or never-bound) viewer stops reporting: no stale "ok" / "unavailable".
+        status.Remove(ComponentName);
+    }
+
+    private async Task RunAsync(HttpListener listener, CancellationToken stoppingToken)
+    {
         // HttpListener.GetContextAsync() has no CancellationToken overload; Stop()-ing
-        // the listener from a shutdown callback is what actually unblocks it.
-        using CancellationTokenRegistration registration = stoppingToken.Register(() => _listener.Stop());
+        // the listener from a cancellation callback is what actually unblocks it.
+        using CancellationTokenRegistration registration = stoppingToken.Register(() => listener.Stop());
 
         world.Changed += OnWorldChanged;
         try
@@ -68,11 +115,16 @@ public sealed class VoxelViewerBroadcastService(
                 HttpListenerContext context;
                 try
                 {
-                    context = await _listener.GetContextAsync();
+                    context = await listener.GetContextAsync();
                 }
                 catch (Exception) when (stoppingToken.IsCancellationRequested)
                 {
                     break; // Expected: the registration above stopped the listener.
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Voxel viewer listener failed; the viewer has stopped.");
+                    break;
                 }
 
                 if (context.Request.IsWebSocketRequest)
@@ -90,7 +142,7 @@ public sealed class VoxelViewerBroadcastService(
         {
             world.Changed -= OnWorldChanged;
             CloseAllSockets();
-            _listener.Close();
+            listener.Close();
         }
     }
 

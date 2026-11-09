@@ -21,7 +21,9 @@ flowchart LR
     COMP["AddToolBoxServer()<br/>composition root"]
     CAT["ToolBoxCatalog<br/>(the only list of toolsets)"]
     CORE["ToolBox.Core<br/>catalog types · descriptors · server info · logging"]
-    subgraph Enabled["Toolsets enabled at startup"]
+    REC["ToolsetReconcilerService → ToolsetReconciler<br/>starts toolsets, opens the ToolsetGate"]
+    GATE["ToolsetGate + MCP filters<br/>hide closed tools, 'toolset is off'"]
+    subgraph Enabled["Toolsets (all registered; started and visible only if enabled)"]
       B["Basics<br/>ping · server_info · current_time"]
       V["Voxel<br/>12 shape tools + VoxelWorld"]
       E["Embedded<br/>build tools (off by default)"]
@@ -36,15 +38,17 @@ flowchart LR
   T --> MCP
   COMP --> CAT --> Enabled
   COMP --> CORE
-  MCP --> B & V & E
+  COMP --> REC --> GATE
+  MCP --> GATE --> B & V & E
+  REC -- "Start / Stop" --> VW
   V --> VW -- "world updates" --> Browser
 ```
 
 Reading the picture:
 - **Agents** connect over one of two **transports** (ADR-007). The transport is picked at startup by `--transport`, then the `TOOLBOX_TRANSPORT` env var, then `appsettings.json`; the default is stdio.
 - **`AddToolBoxServer()`** is the composition root: the single place that decides what the server *is*. Both transports call it.
-- **`ToolBoxCatalog`** is the only place toolsets are named. Only the toolsets that are **enabled** get registered. A disabled toolset's tools and background services do not exist at all (ADR-015).
-- **Voxel** brings its own background service (ADR-010), which streams world changes to a browser viewer. The agent never talks to that channel.
+- **`ToolBoxCatalog`** is the only place toolsets are named. Every toolset is registered, but only **enabled** ones are started and visible: the reconciler starts them and opens the gate, and the gate hides a disabled toolset's tools and its background services never run (ADR-018, partly superseding ADR-015).
+- **Voxel** brings its own background work (ADR-010), now a start/stop lifecycle rather than a container-started service, which streams world changes to a browser viewer. The agent never talks to that channel.
 
 ## 2. Projects and dependencies
 
@@ -74,15 +78,17 @@ sequenceDiagram
   S->>S: DesiredStateStore(Desired:Path).Load() — read only, never throws, never writes
   Note over S: corrupt/unsupported → defaults + components.desiredState (degraded)
   S->>K: EnabledResolution.Resolve(config, desired) → desired + effective + pinnedBy
-  S->>K: Create().Compose(services, enabled)
-  K->>DI: entry.Register(services) — ONLY for enabled entries
-  Note over K: unknown id → throw, listing the valid ids (fail fast)
-  S->>DI: add ToolsetStartupLogger, AddMcpServer()
+  S->>K: ValidateIds(effective) — unknown id → throw, listing the valid ids (fail fast)
+  S->>K: ComposeAll(services)
+  K->>DI: entry.Register(services) — EVERY entry, cheap and side-effect-free (ADR-018)
+  Note over K: a raw IHostedService in a toolset → throw
+  S->>DI: add gate (closed), status board, ToolsetReconciler, ToolsetReconcilerService, AddMcpServer() + gate filters
   P->>H: Build() + Run()
   Note over P,H: HTTP mode: PortTable defaults + validation first;<br/>then probe the MCP port before Kestrel binds (taken → exit 3)
+  H-->>H: ToolsetReconcilerService reconciles to the effective roster
+  H-->>H: per toolset: Start() succeeds, then the gate opens (voxel: viewer binds its port, or components.viewer = unavailable)
   H-->>H: stderr log "Enabled toolsets: basics"
-  H-->>H: viewer binds its port, or reports components.viewer = unavailable
-  Note over DI,H: after Build() the service collection is FROZEN —<br/>changing toolsets today means a restart
+  Note over DI,H: the container is frozen after Build(), so every toolset is registered<br/>and the gate decides what is started and visible
 ```
 
 ### Where "enabled" comes from (five layers, later wins)
@@ -119,6 +125,7 @@ flowchart LR
 - Schema: integer `schemaVersion` plus sequential migrations. A newer version is `Unsupported` and never overwritten.
 - `Load()` never throws and never creates the file. `Save()` (called by the admin API, #35, the only writer) writes a temp file in the same directory, flushes, then renames. A corrupt file is copied to `desired-state.json.bad-<UTC>` only when the next save happens.
 - Hand-editing is allowed but unsupported. The host never writes the file.
+- **Live changes (#32 step 7):** `ToolsetReconcilerService` also reconciles on a file change and on a manual `IToolsetReconciler.RequestReconcile()`. `DesiredStateWatcher` watches the file's directory (so atomic temp-file renames are seen); events are debounced (300 ms, on `TimeProvider`) into one run. `DesiredRosterSource` calls `Load()` then `EnabledResolution.Resolve` on each trigger, so env pins stay authoritative, and a corrupt or unsupported file keeps the last good roster and reports `components.desiredState`. If the directory is missing or the watcher fails, only manual requests apply.
 
 ## 4. Ports and endpoints
 
@@ -157,7 +164,7 @@ Rows 3–7 are ordinary layered .NET configuration and apply to all three servic
 
 ### Health check and exit codes
 
-`GET /health` returns `{"status","components","version","toolsets","uptime"}`. `status` is `"ok"` when every enabled component is healthy and `"degraded"` when an optional one (today: the viewer) is down. Both are HTTP 200, so the container healthcheck keeps passing. `components` is `{}` when no component reports (for example Voxel disabled). `components.desiredState` appears only when the desired-state file is unusable: `"corrupt: <reason>"` or `"unsupported: schemaVersion N (this build understands 1)"`. A missing or valid file reports nothing; the host falls back to defaults and keeps running (HTTP 200, `degraded`).
+`GET /health` returns `{"status","components","version","toolsets","toolsetDetails","uptime"}`. `toolsets` lists only toolsets that are on. `toolsetDetails` is `{id: {desired, effective, actual, reason?}}` built from the reconciler's `ToolsetStatusBoard`; it is kept apart from `components` because there any non-"ok" string means degraded, whereas an `off` toolset is normal and only `failed` degrades (#32 step 8). `status` is `"ok"` when every enabled component is healthy and no toolset failed, and `"degraded"` when an optional component (today: the viewer) is down or a toolset failed. Both are HTTP 200, so the container healthcheck keeps passing. `components` is `{}` when no component reports (for example Voxel disabled). `components.desiredState` appears only when the desired-state file is unusable: `"corrupt: <reason>"` or `"unsupported: schemaVersion N (this build understands 1)"`. A missing or valid file reports nothing; the host falls back to defaults and keeps running (HTTP 200, `degraded`).
 
 | Exit code | Meaning |
 |---|---|
@@ -186,7 +193,7 @@ gitGraph
 | Phase | Milestone | What it changes in the diagrams above | Status |
 |---|---|---|---|
 | S0 | M2 | Hard-coded toolset chain → catalog + config (§1, §3) | ✅ v1.1.0 |
-| S1 | M3 | Adds a **desired-state file**, a **reconciler**, a loopback **admin API** with a token, a port table, and a background run mode. The roster becomes changeable **while running** | ⏳ next |
+| S1 | M3 | Adds a **desired-state file**, a **reconciler**, a loopback **admin API** with a token, a port table, and a background run mode. The roster becomes changeable **while running** | 🔄 reconciler core done (#32: gate, lifecycles, live file watch, `/health` status); admin API (#35), port table and background mode remain |
 | S2 | M4 | Adds the **ToolBox.Desktop** GUI (Avalonia), which talks to the admin API | — |
 | S3 | M5 | Voxel page, "View world", the world persists across off/on | — |
 | S4 | M6 | Copilot registration | — |

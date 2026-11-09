@@ -144,7 +144,7 @@ One binary, two wires, selected at startup — precedence `--transport` flag > `
 
 Every setting can come from `appsettings.json`, a `TOOLBOX_` environment variable (use `__` for `:`), or the command line. Later sources win: defaults < `appsettings.json` < `TOOLBOX_` env < command line.
 
-**Toolsets** — which toolsets are enabled (ADR-015). Default: `basics,voxel`. A disabled toolset is never registered, so its tools and background services do not exist. `Embedded` is off by default. An unknown id fails startup and lists the valid ones. Changing toolsets needs a restart.
+**Toolsets** — which toolsets are enabled (ADR-015). Default: `basics,voxel`. Every toolset is registered, but only enabled ones are started and visible: a disabled toolset's tools are hidden from `tools/list`, a call to one returns `toolset 'x' is off`, and its background services (e.g. the Voxel viewer on 8090) never run (ADR-018). `Embedded` is off by default. An unknown id fails startup and lists the valid ones. The roster is applied at startup and again live when the desired-state file changes or a reconcile is requested (see the desired-state file below).
 
 ```bash
 TOOLBOX_TOOLSETS=basics dotnet run --project src/ToolBox.Host -- --transport http
@@ -167,8 +167,11 @@ TOOLBOX_Desired__Path=/tmp/tb/desired-state.json dotnet run --project src/ToolBo
 { "schemaVersion": 1, "toolsets": { "voxel": { "enabled": false } } }
 ```
 
-- The host reads the file once at startup and **never creates or writes it**; the GUI/admin API will be the writer. Hand-editing is allowed but unsupported.
-- A corrupt or newer-version file is ignored (defaults apply), left untouched, and `/health` shows `status: "degraded"` with `components.desiredState`. A missing file is normal.
+- The host reads the file at startup and **again whenever it changes** (edits within about 300 ms are coalesced into one reconcile), so toolsets turn on and off without a restart. It **never creates or writes the file**; the GUI/admin API will be the writer. Hand-editing is allowed but unsupported.
+- Turning Voxel off stops the viewer and frees its port; the world stays in memory, so turning it back on restores it. Clients see the change on their next `tools/list`. A call to a toolset that is off returns `toolset 'x' is off`.
+- `TOOLBOX_TOOLSETS` still pins `enabled`: file edits to a pinned toolset are ignored.
+- The file is only watched if its directory exists when the host starts. Otherwise changes apply on a manual reconcile request (the admin API will expose one in #35).
+- A corrupt or newer-version file is left untouched and `/health` shows `status: "degraded"` with `components.desiredState`. At startup defaults apply; while running, the last good roster is kept. A missing file is normal.
 - Docker opt-in (persist toggles across restarts): add `volumes: ["toolbox-data:/data"]` and `TOOLBOX_Desired__Path=/data/desired-state.json` to the service, and declare `toolbox-data:` under top-level `volumes:`. The container runs as non-root, so the volume must be writable by it.
 
 **Ports** — one table for all services (ADR-016). The full table, precedence diagram and conflict behaviour are in [`docs/ARCHITECTURE.md` §4](docs/ARCHITECTURE.md#4-ports-and-endpoints).
@@ -185,7 +188,8 @@ TOOLBOX_Ports__Mcp__Port=8085 dotnet run --project src/ToolBox.Host -- --transpo
 
 - **The default bind is now `127.0.0.1`** (it used to be `localhost` for MCP, and all interfaces for the viewer). Only your machine can connect. Set the address to `0.0.0.0` to listen on every interface; the Docker image and `docker-compose.yml` already do.
 - `ASPNETCORE_URLS` / `--urls` still work for MCP and win over `Ports:Mcp:*`.
-- **`/health`** returns `status` (`ok`, or `degraded` when an optional component such as the viewer is down; always HTTP 200) and a `components` map, e.g. `{"viewer":"unavailable: port 8090 in use"}` or `{"desiredState":"corrupt: …"}`.
+- **`/health`** also returns `toolsetDetails`: per toolset `desired` and `effective` (they differ only when `TOOLBOX_TOOLSETS` pins the roster), `actual` (`off`, `starting`, `on`, `stopping` or `failed`) and, for `failed`, a `reason`. `toolsets` lists only the toolsets that are on. `off` is normal; a `failed` toolset makes `status` `degraded` while the others keep working.
+- **`/health`** returns `status` (`ok`, or `degraded` when an optional component such as the viewer is down or a toolset failed; always HTTP 200) and a `components` map, e.g. `{"viewer":"unavailable: port 8090 in use"}` or `{"desiredState":"corrupt: …"}`.
 
 **Exit codes**
 

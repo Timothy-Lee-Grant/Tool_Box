@@ -9,71 +9,109 @@ using ToolBox.Voxel;
 namespace ToolBox.Host.Tests;
 
 /// <summary>
-/// Proves a disabled toolset is ABSENT, not merely hidden: its tools are missing from
-/// tools/list and its hosted service is not in the container. Most tests only Build()
-/// the app (nothing starts, so no ports are used) and inspect the DI container.
+/// Proves a disabled toolset is INVISIBLE and NOT RUNNING (issue #32): every toolset is
+/// registered, but the reconciler only starts and opens the enabled ones. Tests start the app
+/// on ephemeral ports, then inspect the gate, the viewer and tools/list.
 /// </summary>
 [Collection(VoxelViewerCollection.Name)]
 public class ToolsetSelectionTests
 {
-    private static WebApplication Build(string? toolsets) =>
-        ToolBoxHttpApp.Build(
-            [],
-            overrideUrl: "http://127.0.0.1:0",
-            settings: toolsets is null
-                ? new Dictionary<string, string?>()
-                : new Dictionary<string, string?> { [ToolBoxCatalog.EnvKey] = toolsets });
+    private static WebApplication Build(string? toolsets)
+    {
+        var settings = new Dictionary<string, string?> { ["Ports:Viewer:Port"] = "0" };
+        if (toolsets is not null) settings[ToolBoxCatalog.EnvKey] = toolsets;
+        return ToolBoxHttpApp.Build([], overrideUrl: "http://127.0.0.1:0", settings: settings);
+    }
 
-    private static string[] ToolsetNames(WebApplication app) =>
-        app.Services.GetServices<ToolsetDescriptor>()
-            .Select(d => d.Name)
-            .OrderBy(n => n, StringComparer.Ordinal)
-            .ToArray();
+    private static async Task<WebApplication> StartAsync(string? toolsets)
+    {
+        var app = Build(toolsets);
+        await app.StartAsync();
+        return app;
+    }
 
-    private static bool HasViewer(WebApplication app) =>
-        app.Services.GetServices<IHostedService>().OfType<VoxelViewerBroadcastService>().Any();
+    private static string[] OpenToolsets(WebApplication app) =>
+        app.Services.GetRequiredService<ToolBox.Core.Toolsets.ToolsetGate>().Snapshot()
+            .Select(s => s.ToLowerInvariant()).Order().ToArray();
+
+    private static bool ViewerRunning(WebApplication app) =>
+        app.Services.GetRequiredService<VoxelViewerBroadcastService>().Port is not null;
 
     [Fact]
     public async Task Default_IsBasicsAndVoxel()
     {
-        await using var app = Build(null);
+        await using var app = await StartAsync(null);
 
-        Assert.Equal(new[] { "Basics", "Voxel" }, ToolsetNames(app));
-        Assert.True(HasViewer(app));
+        Assert.Equal(new[] { "basics", "voxel" }, OpenToolsets(app));
+        Assert.True(ViewerRunning(app));
+        await app.StopAsync();
     }
 
     [Fact]
-    public async Task VoxelDisabled_ViewerServiceIsNotRegistered()
+    public async Task HostedServices_ForOffToolset_NeverRun()
     {
-        await using var app = Build("basics");
+        await using var app = await StartAsync("basics");
 
-        Assert.Equal(new[] { "Basics" }, ToolsetNames(app));
-        Assert.False(HasViewer(app));
+        Assert.Equal(new[] { "basics" }, OpenToolsets(app));
+        Assert.False(ViewerRunning(app));
+        Assert.DoesNotContain("viewer",
+            app.Services.GetRequiredService<ToolBox.Core.Health.ComponentStatusRegistry>().Snapshot().Keys);
+        await app.StopAsync();
     }
 
     [Fact]
-    public async Task VoxelEnabled_ViewerServiceIsRegistered()
+    public async Task VoxelEnabled_ViewerRuns()
     {
-        await using var app = Build("basics, voxel");
+        await using var app = await StartAsync("basics, voxel");
 
-        Assert.True(HasViewer(app));
+        Assert.True(ViewerRunning(app));
+        await app.StopAsync();
     }
 
     [Fact]
     public async Task EmbeddedEnabled_AppearsAlongsideOthers()
     {
-        await using var app = Build("basics,embedded");
+        await using var app = await StartAsync("basics,embedded");
 
-        Assert.Equal(new[] { "Basics", "Embedded" }, ToolsetNames(app));
-        Assert.False(HasViewer(app));
+        Assert.Equal(new[] { "basics", "embedded" }, OpenToolsets(app));
+        Assert.False(ViewerRunning(app));
+        await app.StopAsync();
+    }
+
+    [Fact]
+    public void ComposeAll_RejectsToolsetThatRegistersRawHostedService()
+    {
+        var catalog = new ToolsetCatalog([
+            new ToolsetCatalogEntry("a", "A", "a",
+                s => s.AddSingleton<IHostedService, NoopHosted>())]);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => catalog.ComposeAll(new ServiceCollection()));
+
+        Assert.Contains("IHostedService", ex.Message);
+        Assert.Contains("'a'", ex.Message);
+    }
+
+    [Fact]
+    public void ProductionCatalog_RegistersNoRawHostedService()
+    {
+        var added = ToolBoxCatalog.Create().ComposeAll(new ServiceCollection());
+
+        Assert.Equal(3, added.Count);
+    }
+
+    private sealed class NoopHosted : IHostedService
+    {
+        public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
     [Fact]
     public async Task EmptyValue_EnablesNothing()
     {
-        await using var app = Build("");
+        await using var app = await StartAsync("");
 
-        Assert.Empty(ToolsetNames(app));
+        Assert.Empty(OpenToolsets(app));
+        await app.StopAsync();
     }
 
     [Fact]
@@ -112,8 +150,7 @@ public class ToolsetSelectionTests
     public async Task BasicsOnly_ToolsListHasNoVoxelTools_AndHealthListsOnlyBasics()
     {
         // Voxel is off, so starting this app does not bind a viewer port.
-        await using var app = Build("basics");
-        await app.StartAsync();
+        await using var app = await StartAsync("basics");
         string baseUrl = app.Urls.First().TrimEnd('/');
 
         var transport = new HttpClientTransport(new HttpClientTransportOptions
