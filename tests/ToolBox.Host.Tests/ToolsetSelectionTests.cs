@@ -31,7 +31,7 @@ public class ToolsetSelectionTests
             .ToArray();
 
     private static bool HasViewer(WebApplication app) =>
-        app.Services.GetServices<IHostedService>().OfType<VoxelViewerBroadcastService>().Any();
+        app.Services.GetServices<VoxelViewerBroadcastService>().Any();
 
     [Fact]
     public async Task Default_IsBasicsAndVoxel()

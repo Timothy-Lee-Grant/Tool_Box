@@ -56,6 +56,9 @@ internal static class ToolBoxServerComposition
         var enabled = resolution.Effective;
         catalog.Compose(services, enabled);
 
+        // Interim bridge (#32 step 4): starts the lifecycles of the toolsets composed above.
+        services.AddHostedService<StartupLifecycleRunner>();
+
         // Startup line on stderr (ADR-004) naming what this process actually composed.
         var ids = enabled.Select(e => e.ToLowerInvariant()).Distinct().ToArray();
         services.AddHostedService(sp => new ToolsetStartupLogger(
