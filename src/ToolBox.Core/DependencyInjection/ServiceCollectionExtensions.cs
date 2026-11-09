@@ -19,6 +19,7 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         services.TryAddSingleton(TimeProvider.System);
+        services.TryAddSingleton<ToolBox.Core.Toolsets.ToolsetGate>();
         services.TryAddSingleton<ServerInfoProvider>();
         // Where optional components (e.g. the voxel viewer) report their health.
         services.TryAddSingleton<ToolBox.Core.Health.ComponentStatusRegistry>();
