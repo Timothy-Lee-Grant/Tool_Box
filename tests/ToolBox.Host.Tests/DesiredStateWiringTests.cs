@@ -116,24 +116,28 @@ public sealed class DesiredStateWiringTests : IDisposable
         return ToolBoxHttpApp.Build([], overrideUrl: "http://127.0.0.1:0", settings: settings);
     }
 
-    private static bool HasViewer(WebApplication app) =>
-        app.Services.GetServices<VoxelViewerBroadcastService>().Any();
+    private static bool ViewerRunning(WebApplication app) =>
+        app.Services.GetRequiredService<VoxelViewerBroadcastService>().Port is not null;
 
     [Fact]
     public async Task FileTurnsVoxelOff()
     {
         await using var app = Build("""{"schemaVersion":1,"toolsets":{"voxel":{"enabled":false}}}""");
+        await app.StartAsync();
 
-        Assert.False(HasViewer(app));
-        Assert.Equal(new[] { "Basics" }, app.Services.GetServices<ToolsetDescriptor>().Select(d => d.Name).ToArray());
+        Assert.False(ViewerRunning(app));
+        Assert.Equal(new[] { "Basics" }, app.Services.GetRequiredService<ServerInfoProvider>().Get().Toolsets.ToArray());
+        await app.StopAsync();
     }
 
     [Fact]
     public async Task EnvVar_OverridesFile()
     {
         await using var app = Build("""{"schemaVersion":1,"toolsets":{"voxel":{"enabled":false}}}""", envToolsets: "basics,voxel");
+        await app.StartAsync();
 
-        Assert.True(HasViewer(app));
+        Assert.True(ViewerRunning(app));
+        await app.StopAsync();
     }
 
     [Fact]

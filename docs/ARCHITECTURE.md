@@ -21,7 +21,9 @@ flowchart LR
     COMP["AddToolBoxServer()<br/>composition root"]
     CAT["ToolBoxCatalog<br/>(the only list of toolsets)"]
     CORE["ToolBox.Core<br/>catalog types · descriptors · server info · logging"]
-    subgraph Enabled["Toolsets enabled at startup"]
+    REC["ToolsetReconcilerService → ToolsetReconciler<br/>starts toolsets, opens the ToolsetGate"]
+    GATE["ToolsetGate + MCP filters<br/>hide closed tools, 'toolset is off'"]
+    subgraph Enabled["Toolsets (all registered; started and visible only if enabled)"]
       B["Basics<br/>ping · server_info · current_time"]
       V["Voxel<br/>12 shape tools + VoxelWorld"]
       E["Embedded<br/>build tools (off by default)"]
@@ -36,15 +38,17 @@ flowchart LR
   T --> MCP
   COMP --> CAT --> Enabled
   COMP --> CORE
-  MCP --> B & V & E
+  COMP --> REC --> GATE
+  MCP --> GATE --> B & V & E
+  REC -- "Start / Stop" --> VW
   V --> VW -- "world updates" --> Browser
 ```
 
 Reading the picture:
 - **Agents** connect over one of two **transports** (ADR-007). The transport is picked at startup by `--transport`, then the `TOOLBOX_TRANSPORT` env var, then `appsettings.json`; the default is stdio.
 - **`AddToolBoxServer()`** is the composition root: the single place that decides what the server *is*. Both transports call it.
-- **`ToolBoxCatalog`** is the only place toolsets are named. Only the toolsets that are **enabled** get registered. A disabled toolset's tools and background services do not exist at all (ADR-015).
-- **Voxel** brings its own background service (ADR-010), which streams world changes to a browser viewer. The agent never talks to that channel.
+- **`ToolBoxCatalog`** is the only place toolsets are named. Every toolset is registered, but only **enabled** ones are started and visible: the reconciler starts them and opens the gate, and the gate hides a disabled toolset's tools and its background services never run (ADR-018, partly superseding ADR-015).
+- **Voxel** brings its own background work (ADR-010), now a start/stop lifecycle rather than a container-started service, which streams world changes to a browser viewer. The agent never talks to that channel.
 
 ## 2. Projects and dependencies
 
@@ -74,15 +78,17 @@ sequenceDiagram
   S->>S: DesiredStateStore(Desired:Path).Load() — read only, never throws, never writes
   Note over S: corrupt/unsupported → defaults + components.desiredState (degraded)
   S->>K: EnabledResolution.Resolve(config, desired) → desired + effective + pinnedBy
-  S->>K: Create().Compose(services, enabled)
-  K->>DI: entry.Register(services) — ONLY for enabled entries
-  Note over K: unknown id → throw, listing the valid ids (fail fast)
-  S->>DI: add ToolsetStartupLogger, AddMcpServer()
+  S->>K: ValidateIds(effective) — unknown id → throw, listing the valid ids (fail fast)
+  S->>K: ComposeAll(services)
+  K->>DI: entry.Register(services) — EVERY entry, cheap and side-effect-free (ADR-018)
+  Note over K: a raw IHostedService in a toolset → throw
+  S->>DI: add gate (closed), status board, ToolsetReconciler, ToolsetReconcilerService, AddMcpServer() + gate filters
   P->>H: Build() + Run()
   Note over P,H: HTTP mode: PortTable defaults + validation first;<br/>then probe the MCP port before Kestrel binds (taken → exit 3)
+  H-->>H: ToolsetReconcilerService reconciles to the effective roster
+  H-->>H: per toolset: Start() succeeds, then the gate opens (voxel: viewer binds its port, or components.viewer = unavailable)
   H-->>H: stderr log "Enabled toolsets: basics"
-  H-->>H: viewer binds its port, or reports components.viewer = unavailable
-  Note over DI,H: after Build() the service collection is FROZEN —<br/>changing toolsets today means a restart
+  Note over DI,H: the container is frozen after Build(), so every toolset is registered<br/>and the gate decides what is started and visible
 ```
 
 ### Where "enabled" comes from (five layers, later wins)

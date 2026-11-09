@@ -60,6 +60,33 @@ public class ToolsetCatalogTests
     }
 
     [Fact]
+    public void ComposeAll_RegistersEveryEntry_AndReturnsTheirDescriptors()
+    {
+        var log = new List<string>();
+        var catalog = new ToolsetCatalog([
+            new ToolsetCatalogEntry("a", "A", "a", s => { log.Add("a"); s.AddSingleton<string>("x"); }),
+            Entry("b", log)]);
+
+        var added = catalog.ComposeAll(new ServiceCollection());
+
+        Assert.Equal(["a", "b"], log);
+        Assert.Single(added["a"]);
+        Assert.Empty(added["b"]);
+    }
+
+    [Fact]
+    public void ValidateIds_UnknownThrows_AndListsValidIds_KnownIsCaseInsensitive()
+    {
+        var catalog = new ToolsetCatalog([Entry("a", []), Entry("b", [])]);
+
+        catalog.ValidateIds(["A", " b "]);
+        var ex = Assert.Throws<InvalidOperationException>(() => catalog.ValidateIds(["a", "nope"]));
+
+        Assert.Contains("nope", ex.Message);
+        Assert.Contains("a, b", ex.Message);
+    }
+
+    [Fact]
     public void Compose_EmptyList_RunsNothing()
     {
         var log = new List<string>();

@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using ToolBox.Core.DependencyInjection;
 using ToolBox.Core.Desired;
 using ToolBox.Core.Health;
+using ToolBox.Core.Toolsets;
 
 namespace ToolBox.Host;
 
@@ -51,25 +52,25 @@ internal static class ToolBoxServerComposition
         services.AddSingleton(store);
         services.AddSingleton(resolution);
 
-        // Only enabled entries are invoked, so a disabled toolset's tools and hosted
-        // services are never registered. Unknown ids in env/appsettings still throw (fail loud).
-        var enabled = resolution.Effective;
-        var composed = catalog.Compose(services, enabled);
+        // Fail loud on an unknown id in env/appsettings (ADR-015 rule, kept), then register EVERY
+        // toolset: registration is cheap and side-effect-free, and the reconciler decides what is
+        // started and visible (#32). Nothing runs until the reconciler starts it.
+        catalog.ValidateIds(resolution.Effective);
+        var composed = catalog.ComposeAll(services);
         services.AddSingleton(ToolOwners.FromDescriptors(composed));
 
-        // Interim (#32 step 5): the gate starts open for exactly what was composed, so behaviour
-        // is unchanged. Step 6 removes this; the reconciler becomes the only writer.
-        var gate = new ToolBox.Core.Toolsets.ToolsetGate();
-        foreach (var id in composed.Keys) gate.Open(id);
-        services.AddSingleton(gate);
+        // The gate (registered by AddToolBoxCore) starts closed; only the reconciler opens it.
+        var knownIds = catalog.Entries.Select(e => e.Id).ToArray();
+        services.AddSingleton<ToolsetStatusBoard>();
+        services.AddSingleton(sp => new ToolsetReconciler(
+            knownIds,
+            sp.GetServices<IToolsetLifecycle>(),
+            sp.GetRequiredService<ToolsetGate>(),
+            sp.GetRequiredService<ToolsetStatusBoard>(),
+            TimeProvider.System));
 
-        // Interim bridge (#32 step 4): starts the lifecycles of the toolsets composed above.
-        services.AddHostedService<StartupLifecycleRunner>();
-
-        // Startup line on stderr (ADR-004) naming what this process actually composed.
-        var ids = enabled.Select(e => e.ToLowerInvariant()).Distinct().ToArray();
-        services.AddHostedService(sp => new ToolsetStartupLogger(
-            ids, sp.GetRequiredService<ILogger<ToolsetStartupLogger>>()));
+        // Reconciles to the effective roster once at startup (and to nothing at shutdown).
+        services.AddHostedService<ToolsetReconcilerService>();
 
         // Idempotent (proved by the AddMcpServer_CalledTwice_IsSafe test); this call also
         // guarantees a builder for the transport even when no toolset is enabled.

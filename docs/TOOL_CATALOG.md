@@ -45,7 +45,7 @@ A live-buildable voxel world (plan 003). Tools describe *form*, not coordinates 
 
 ## Enabling toolsets
 
-The Host composes only the toolsets that are *enabled*; a disabled toolset is never registered, so its tools are absent from `tools/list` and its hosted services (e.g. the Voxel viewer on 8090) never start (ADR-015).
+The Host registers every toolset but starts only the *enabled* ones; a disabled toolset's tools are hidden from `tools/list`, a call to one returns `toolset 'x' is off`, and its background services (e.g. the Voxel viewer on 8090) never run (ADR-018).
 
 | Id | Toolset | Enabled by default |
 |---|---|---|
@@ -65,7 +65,7 @@ The Host composes only the toolsets that are *enabled*; a disabled toolset is ne
 - An **empty** `TOOLBOX_TOOLSETS=` enables **nothing** — it is not "use the default".
 - An unknown id fails startup with a message listing the valid ids.
 - At startup the Host logs the enabled toolsets on stderr (ADR-004), e.g. `Enabled toolsets: basics, voxel`.
-- Changes need a restart (switching live is out of scope until S1+).
+- The roster is applied once at startup; live switching lands in a later step of #32.
 
 ## Transport independence
 

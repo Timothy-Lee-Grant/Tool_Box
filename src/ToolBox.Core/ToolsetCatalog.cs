@@ -4,9 +4,9 @@ namespace ToolBox.Core;
 
 /// <summary>
 /// An immutable list of available toolsets. The Host builds one (it is the only place
-/// allowed to name toolsets, ADR-003) and composes just the enabled entries.
-/// Disabled entries' <see cref="ToolsetCatalogEntry.Register"/> is never invoked, so their
-/// tools and hosted services never exist.
+/// allowed to name toolsets, ADR-003). At runtime the Host calls <see cref="ComposeAll"/>: every
+/// toolset is registered (cheap, side-effect-free) and the reconciler decides which are started
+/// and visible. <see cref="Compose"/> (enabled entries only) is the earlier startup-only form (ADR-015).
 /// </summary>
 public sealed class ToolsetCatalog
 {
@@ -34,6 +34,48 @@ public sealed class ToolsetCatalog
     public IReadOnlyList<ToolsetCatalogEntry> Entries => _entries.Values.ToList();
 
     /// <summary>
+    /// Throws if any id is not in the catalog, listing the valid ids (ADR-015's fail-loud rule,
+    /// kept now that every toolset is registered). Ids are case-insensitive.
+    /// </summary>
+    public void ValidateIds(IEnumerable<string> ids)
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+        foreach (var id in ids) Resolve(id);
+    }
+
+    /// <summary>
+    /// Registers EVERY entry. A toolset must not register a raw IHostedService (the container
+    /// would start it at boot and nothing could turn it off); its background work belongs in an
+    /// <c>IToolsetLifecycle</c> the reconciler starts and stops. Throws if one does.
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<ServiceDescriptor>> ComposeAll(IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        var added = new Dictionary<string, IReadOnlyList<ServiceDescriptor>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in _entries.Values)
+        {
+            int before = services.Count;
+            entry.Register(services);
+            var descriptors = services.Skip(before).ToList();
+            if (descriptors.Any(d => d.ServiceType.FullName == "Microsoft.Extensions.Hosting.IHostedService"))
+            {
+                throw new InvalidOperationException(
+                    $"toolset '{entry.Id}' registers a raw IHostedService; use an IToolsetLifecycle so it can be stopped.");
+            }
+
+            added[entry.Id] = descriptors;
+        }
+
+        return added;
+    }
+
+    private ToolsetCatalogEntry Resolve(string? id) =>
+        _entries.TryGetValue(id?.Trim() ?? string.Empty, out var entry)
+            ? entry
+            : throw new InvalidOperationException(
+                $"unknown toolset id '{id}'. Valid ids: {string.Join(", ", _entries.Values.Select(e => e.Id))}.");
+
+    /// <summary>
     /// Runs <see cref="ToolsetCatalogEntry.Register"/> for each enabled id, in the order given.
     /// Fails loudly on an unknown id, listing the valid ones. Ids are case-insensitive;
     /// repeated ids are registered once.
@@ -51,12 +93,7 @@ public sealed class ToolsetCatalog
         var selected = new List<ToolsetCatalogEntry>();
         foreach (var id in enabledIds)
         {
-            if (!_entries.TryGetValue(id?.Trim() ?? string.Empty, out var entry))
-            {
-                throw new InvalidOperationException(
-                    $"unknown toolset id '{id}'. Valid ids: {string.Join(", ", _entries.Values.Select(e => e.Id))}.");
-            }
-
+            var entry = Resolve(id);
             if (!selected.Contains(entry))
             {
                 selected.Add(entry);
