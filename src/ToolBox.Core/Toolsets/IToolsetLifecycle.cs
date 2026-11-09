@@ -12,7 +12,11 @@ public interface IToolsetLifecycle
     /// <summary>The catalog id this lifecycle belongs to, e.g. "voxel".</summary>
     string ToolsetId { get; }
 
-    /// <summary>Acquire resources. Throwing marks the toolset Failed with the exception message.</summary>
+    /// <summary>
+    /// Acquire resources. Throwing marks the toolset Failed with the exception message.
+    /// Contract: if StartAsync throws, it must leave nothing running (clean up after itself).
+    /// StopAsync is never called after a failed start, so there is no rollback Stop.
+    /// </summary>
     Task StartAsync(CancellationToken cancellationToken);
 
     /// <summary>Release resources. Must keep in-memory state such as the Voxel world.</summary>
