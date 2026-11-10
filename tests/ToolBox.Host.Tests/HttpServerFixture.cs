@@ -22,6 +22,8 @@ public sealed class HttpServerFixture : IAsyncLifetime
     /// <summary>The token the host created in a temp file; tests send it as a bearer token.</summary>
     public string AdminToken { get; private set; } = string.Empty;
 
+    public IServiceProvider Services => _app!.Services;
+
     public string AdminTokenPath => Path.Combine(_tokenDir, "admin-token");
 
     public async Task InitializeAsync()

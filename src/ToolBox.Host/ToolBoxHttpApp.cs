@@ -119,6 +119,12 @@ internal static class ToolBoxHttpApp
         // First in the pipeline: the socket the request arrived on decides which plane it may touch.
         app.UseMiddleware<PlaneSeparationMiddleware>();
 
+        // Second: on the admin socket, Host/Origin checks, then the bearer token, before any routing.
+        app.UseMiddleware<AdminGuardMiddleware>();
+
+        // Control-plane routes, only the guarded /api/v1 group (never MCP tools: decision 7).
+        app.MapAdminApi();
+
         // The MCP endpoint (streamable HTTP).
         app.MapMcp("/mcp");
 
@@ -175,27 +181,35 @@ internal static class ToolBoxHttpApp
             // name the exact endpoint that is taken; if every probe now passes (the other
             // process already let go), report the first configured endpoint.
             Preflight(endpoints, inner: ex);
-            (IPAddress address, int port) = endpoints.FirstOrDefault();
-            throw new PortConflictException(McpService, port, address ?? IPAddress.Loopback, McpPortKey, ex);
+            Endpoint first = endpoints.FirstOrDefault() ?? new Endpoint(IPAddress.Loopback, 0, McpService, McpPortKey);
+            throw new PortConflictException(first.Service, first.Port, first.Address, first.PortKey, ex);
         }
     }
 
     private const string McpService = "MCP";
+    private const string AdminService = "Admin";
     private static readonly string McpPortKey = PortTable.PortKey(PortTable.Mcp);
+    private static readonly string AdminPortKey = PortTable.PortKey(PortTable.Admin);
 
-    /// <summary>Probes every URL the MCP server is about to bind (ASPNETCORE_URLS can hold several).</summary>
-    private static void Preflight(List<(IPAddress Address, int Port)> endpoints, Exception? inner = null)
+    /// <summary>One URL the app is about to bind, with the service and config key to blame if it is taken.</summary>
+    private sealed record Endpoint(IPAddress Address, int Port, string Service, string PortKey);
+
+    /// <summary>
+    /// Probes every URL the app is about to bind. MCP and Admin are both required: a conflict on
+    /// either stops the host (exit 3), and the message names the right service and config key.
+    /// </summary>
+    private static void Preflight(List<Endpoint> endpoints, Exception? inner = null)
     {
-        foreach ((IPAddress address, int port) in endpoints)
+        foreach (Endpoint e in endpoints)
         {
             try
             {
-                PortProbe.Check(address, port, McpService, McpPortKey);
+                PortProbe.Check(e.Address, e.Port, e.Service, e.PortKey);
             }
             catch (PortConflictException) when (inner is not null)
             {
                 // Rethrow with the original bind failure attached as the cause.
-                throw new PortConflictException(McpService, port, address, McpPortKey, inner);
+                throw new PortConflictException(e.Service, e.Port, e.Address, e.PortKey, inner);
             }
         }
     }
@@ -204,13 +218,17 @@ internal static class ToolBoxHttpApp
     /// Turns the app's configured URLs into probe-able (address, port) pairs. Wildcard hosts
     /// ("+", "*", "0.0.0.0") probe <see cref="IPAddress.Any"/>; "localhost" probes loopback.
     /// </summary>
-    private static IEnumerable<(IPAddress Address, int Port)> ConfiguredEndpoints(WebApplication app)
+    private static IEnumerable<Endpoint> ConfiguredEndpoints(WebApplication app)
     {
         // The "urls" setting is where UseUrls / ASPNETCORE_URLS / --urls all end up. Read it
         // from configuration: app.Urls resolves the server, which isn't safe before start.
         string urls = app.Configuration[WebHostDefaults.ServerUrlsKey] ?? string.Empty;
-        foreach (string url in urls.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        string[] all = urls.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        for (int i = 0; i < all.Length; i++)
         {
+            string url = all[i];
+            // Build appends the admin URL LAST, so the last entry is the control-plane listener.
+            bool isAdmin = i == all.Length - 1;
             // Uri can't parse "+" or "*" as a host, so swap them for the any-address first.
             string normalized = url.Replace("://+", "://0.0.0.0").Replace("://*", "://0.0.0.0");
             if (!Uri.TryCreate(normalized, UriKind.Absolute, out Uri? uri))
@@ -223,7 +241,9 @@ internal static class ToolBoxHttpApp
                 _ => null, // an arbitrary DNS name: leave it to the real bind (D1)
             };
             if (address is not null)
-                yield return (address, uri.Port);
+                yield return isAdmin
+                    ? new Endpoint(address, uri.Port, AdminService, AdminPortKey)
+                    : new Endpoint(address, uri.Port, McpService, McpPortKey);
         }
     }
 }
