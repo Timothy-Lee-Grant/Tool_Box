@@ -55,6 +55,10 @@ ENV TOOLBOX_TRANSPORT=http
 # This replaces ASPNETCORE_URLS, which would otherwise outrank the Ports settings.
 ENV TOOLBOX_Ports__Mcp__Address=0.0.0.0
 ENV TOOLBOX_Ports__Viewer__Address=0.0.0.0
+# The admin token file (issue #36). The non-root user cannot write under /app, where
+# LocalApplicationData resolves in this image, so point it at /tmp (always writable, and
+# regenerated per container: the admin listener is loopback-only inside the container anyway).
+ENV TOOLBOX_Admin__TokenPath=/tmp/toolbox/admin-token
 EXPOSE 8080
 
 # The Voxel toolset's viewer-broadcast WebSocket (VoxelViewerBroadcastService, one fixed

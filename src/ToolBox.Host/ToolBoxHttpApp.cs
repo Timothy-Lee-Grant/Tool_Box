@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using ToolBox.Core;
+using ToolBox.Core.Admin;
 using Microsoft.Extensions.Logging;
 using ToolBox.Core.Health;
 using ToolBox.Core.Logging;
@@ -59,17 +60,29 @@ internal static class ToolBoxHttpApp
         {
             // Tests pass http://127.0.0.1:0 — port 0 asks the OS for any free port,
             // so parallel CI runs can never collide on a fixed number.
-            builder.WebHost.UseUrls(overrideUrl);
+            // The admin URL is ALWAYS appended last: the ApplicationStarted hook below relies on that
+            // order to find the admin listener's real port when Ports:Admin:Port is 0.
+            builder.WebHost.UseUrls(overrideUrl + ";" + ports.Admin.Url);
         }
         else if (urlsSetElsewhere)
         {
             // Kept for compatibility (the Dockerfile sets ASPNETCORE_URLS). Left untouched.
             warnUrlsWin = mcpExplicit;
+            builder.WebHost.UseUrls(builder.Configuration[WebHostDefaults.ServerUrlsKey] + ";" + ports.Admin.Url);
         }
         else
         {
-            builder.WebHost.UseUrls(ports.Mcp.Url);
+            builder.WebHost.UseUrls(ports.Mcp.Url + ";" + ports.Admin.Url);
         }
+
+        // Control plane (issue #36 / #35): a second loopback listener in the SAME app, so the admin
+        // code reaches the store, board and reconciler directly. Only HTTP mode has it; stdio hosts are
+        // spawned per agent session and would fight over the port. Admin:Enabled is the future opt-in.
+        builder.Services.AddSingleton<AdminListener>();
+        string? tokenPath = builder.Configuration["Admin:TokenPath"];
+        builder.Services.AddSingleton(sp => new AdminTokenStore(
+            string.IsNullOrWhiteSpace(tokenPath) ? null : tokenPath,
+            sp.GetRequiredService<ILoggerFactory>().CreateLogger("ToolBox.Admin")));
 
         builder.Services
             .AddToolBoxServer(builder.Configuration)
@@ -90,6 +103,21 @@ internal static class ToolBoxHttpApp
                 "Both ASPNETCORE_URLS/--urls and {PortKey}/{AddressKey} are set; the URLs win for MCP.",
                 PortTable.PortKey(PortTable.Mcp), PortTable.AddressKey(PortTable.Mcp));
         }
+
+        // The token file must exist before the admin listener opens (created here, never replaced).
+        app.Services.GetRequiredService<AdminTokenStore>().EnsureExists();
+
+        // With port 0 the real admin port is known only after start. Admin was appended last (see above).
+        var adminListener = app.Services.GetRequiredService<AdminListener>();
+        app.Lifetime.ApplicationStarted.Register(() =>
+        {
+            string? last = app.Urls.LastOrDefault();
+            if (last is not null && Uri.TryCreate(last, UriKind.Absolute, out Uri? uri))
+                adminListener.Resolve(uri.Port);
+        });
+
+        // First in the pipeline: the socket the request arrived on decides which plane it may touch.
+        app.UseMiddleware<PlaneSeparationMiddleware>();
 
         // The MCP endpoint (streamable HTTP).
         app.MapMcp("/mcp");

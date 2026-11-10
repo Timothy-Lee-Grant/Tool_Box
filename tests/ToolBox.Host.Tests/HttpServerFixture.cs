@@ -12,18 +12,35 @@ namespace ToolBox.Host.Tests;
 public sealed class HttpServerFixture : IAsyncLifetime
 {
     private WebApplication? _app;
+    private readonly string _tokenDir = Path.Combine(Path.GetTempPath(), "toolbox-tests-" + Guid.NewGuid().ToString("N"));
 
     public string BaseUrl { get; private set; } = string.Empty;
+
+    /// <summary>The admin (control-plane) listener, also on an ephemeral port.</summary>
+    public string AdminBaseUrl { get; private set; } = string.Empty;
+
+    /// <summary>The token the host created in a temp file; tests send it as a bearer token.</summary>
+    public string AdminToken { get; private set; } = string.Empty;
+
+    public string AdminTokenPath => Path.Combine(_tokenDir, "admin-token");
 
     public async Task InitializeAsync()
     {
         // Port 0 = "OS, give me any free port" — parallel CI runs can never collide.
         _app = ToolBoxHttpApp.Build([], overrideUrl: "http://127.0.0.1:0",
-            settings: new Dictionary<string, string?> { ["Ports:Viewer:Port"] = "0" });
+            settings: new Dictionary<string, string?>
+            {
+                ["Ports:Viewer:Port"] = "0",
+                ["Ports:Admin:Port"] = "0",
+                ["Admin:TokenPath"] = AdminTokenPath,
+            });
         await _app.StartAsync();
 
-        // After StartAsync, app.Urls holds the RESOLVED address (real port, not 0).
+        // After StartAsync, app.Urls holds the RESOLVED addresses (real ports, not 0).
+        // Build appends the admin URL last, so it is the last entry.
         BaseUrl = _app.Urls.First().TrimEnd('/');
+        AdminBaseUrl = _app.Urls.Last().TrimEnd('/');
+        AdminToken = File.ReadAllText(AdminTokenPath).Trim();
     }
 
     public async Task DisposeAsync()
@@ -33,5 +50,6 @@ public sealed class HttpServerFixture : IAsyncLifetime
             await _app.StopAsync();
             await _app.DisposeAsync();
         }
+        try { Directory.Delete(_tokenDir, recursive: true); } catch (IOException) { }
     }
 }
