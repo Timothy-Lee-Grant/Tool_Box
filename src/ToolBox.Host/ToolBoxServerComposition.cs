@@ -86,6 +86,10 @@ internal static class ToolBoxServerComposition
         services.AddSingleton<IToolsetReconciler>(sp => sp.GetRequiredService<ToolsetReconcilerService>());
         services.AddHostedService(sp => sp.GetRequiredService<ToolsetReconcilerService>());
 
+        // The control plane's only writer of the desired-state file (#35, ADR-017). Registered everywhere;
+        // only the HTTP app maps routes that use it.
+        services.AddSingleton<AdminWriteService>();
+
         // Idempotent (proved by the AddMcpServer_CalledTwice_IsSafe test); this call also
         // guarantees a builder for the transport even when no toolset is enabled.
         return services.AddMcpServer().WithToolsetGateFilters();
