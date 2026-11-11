@@ -136,7 +136,7 @@ Defined in one place, `src/ToolBox.Host/Ports/PortTable.cs`. Every port and bind
 | Service | Default port | Default bind | Config keys | Env vars | If the port is taken |
 |---|---|---|---|---|---|
 | MCP + `/health` (`/mcp`) | 8080 | `127.0.0.1` | `Ports:Mcp:Port`, `Ports:Mcp:Address` | `TOOLBOX_Ports__Mcp__Port`, `TOOLBOX_Ports__Mcp__Address` | **Fail fast:** one stderr line naming the service, port and key, exit code 3 |
-| Admin API (#35) | 8095 | `127.0.0.1` (non-loopback is refused at startup) | `Ports:Admin:Port`, `Ports:Admin:Address` | `TOOLBOX_Ports__Admin__Port`, `TOOLBOX_Ports__Admin__Address` | Table entry only until #35 adds the listener and its probe |
+| Admin API (`/api/v1`, #35/#36) | 8095 | `127.0.0.1` (non-loopback is refused at startup) | `Ports:Admin:Port`, `Ports:Admin:Address` | `TOOLBOX_Ports__Admin__Port`, `TOOLBOX_Ports__Admin__Address` | **Fail fast:** same as MCP, naming `Ports:Admin:Port`, exit code 3. HTTP mode only; stdio never opens it |
 | Voxel viewer feed (`/voxel/`) | 8090 | `127.0.0.1` (answers `127.0.0.1` and `localhost`) | `Ports:Viewer:Port`, `Ports:Viewer:Address` | `TOOLBOX_Ports__Viewer__Port`, `TOOLBOX_Ports__Viewer__Address` | **Degrade visibly:** MCP keeps running, `/health` shows `components.viewer = "unavailable: port 8090 in use"` |
 | MCP over stdio | none | none | none | none | stdout is reserved for protocol messages; logs go to stderr (ADR-004) |
 
@@ -144,6 +144,33 @@ Defined in one place, `src/ToolBox.Host/Ports/PortTable.cs`. Every port and bind
 - `0.0.0.0` means all interfaces. Containers set it explicitly in the `Dockerfile` and `docker-compose.yml`, because a loopback socket inside a container is unreachable from published ports (ADR-016, revisiting ADR-012).
 - The viewer only exists when Voxel is enabled (ADR-012, ADR-015). Never publish the MCP port beyond a trusted network (ADR-008/011).
 - Voxel viewer: `viewer/index.html` connects to `ws://127.0.0.1:8090/voxel/`.
+
+### Admin API: control plane vs data plane (ADR-019)
+
+The HTTP host opens a **second loopback endpoint** on the same `WebApplication`. Agents use MCP (data plane); the GUI and curl use `/api/v1` (control plane). Agents have no route to the control plane, which enforces epic #23 decision 7.
+
+```mermaid
+flowchart LR
+  A[Agent] -->|MCP| M["Kestrel 127.0.0.1:8080<br/>/mcp, /health<br/>/api/v1/* gives 404"]
+  G[GUI / curl] --> AD["Kestrel 127.0.0.1:8095<br/>1 PlaneSeparation: LocalPort<br/>2 Host 421 / Origin 403<br/>3 Bearer 401<br/>/api/v1/health, /token/rotate"]
+  TS[("admin-token 0600")] -.AdminTokenStore, re-read on mtime change.-> AD
+  TS -.same-user read.-> G
+```
+
+Startup flow in HTTP mode: `AdminTokenStore.EnsureExists()` creates the token file (before any listener opens) → preflight probes both the MCP and admin URLs (exit 3 if either is taken) → Kestrel binds both URLs (admin appended last) → `AdminListener` records the real admin port at `ApplicationStarted`.
+
+Per request, in order:
+
+1. `PlaneSeparationMiddleware` decides by the socket's `LocalPort`, never the `Host` header: `/api/v1` is 404 on the MCP port; everything except `/api/v1` is 404 on the admin port.
+2. `AdminGuardMiddleware` (admin socket only, before routing): `Host` must be `127.0.0.1`, `localhost` or `[::1]` with the admin port, else 421; a present `Origin` must be a loopback origin on the admin port, else 403 (no `Origin` passes). No CORS headers are ever sent. Then `Authorization: Bearer <token>` is required, else 401 with `WWW-Authenticate: Bearer` and an empty body. A token in the query string is not accepted. A `PUT`/`POST` with a body needs `Content-Type: application/json`, else 415.
+3. Routing: `MapAdminApi()` returns only the `/api/v1` group.
+
+| Route | Purpose |
+|---|---|
+| `GET /api/v1/health` | `{version, uptime}` |
+| `POST /api/v1/token/rotate` | Replaces the token file; 204, no body; the old token stops working at once |
+
+The token is 32 random bytes (base64url) in `<LocalApplicationData>/ToolBox/admin-token` (mode 0600, directory 0700 on Unix; override `Admin:TokenPath` / `TOOLBOX_Admin__TokenPath`). Comparison hashes both sides with SHA-256 then `FixedTimeEquals`. Replacing the file by hand also rotates the token with no restart. The container sets the path under `/tmp/toolbox` because its user cannot write `/app`. Toolset endpoints (status, enabled, settings, reconcile) arrive in PR 2 of the plan (#35).
 - Desired-state file path: `Desired:Path` (env `TOOLBOX_Desired__Path`), default `LocalApplicationData/ToolBox/desired-state.json`. Not a port, but the other deployment key the Host reads at startup (ADR-017).
 
 ### Config precedence (highest wins)

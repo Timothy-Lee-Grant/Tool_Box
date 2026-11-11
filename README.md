@@ -191,6 +191,53 @@ TOOLBOX_Ports__Mcp__Port=8085 dotnet run --project src/ToolBox.Host -- --transpo
 - **`/health`** also returns `toolsetDetails`: per toolset `desired` and `effective` (they differ only when `TOOLBOX_TOOLSETS` pins the roster), `actual` (`off`, `starting`, `on`, `stopping` or `failed`) and, for `failed`, a `reason`. `toolsets` lists only the toolsets that are on. `off` is normal; a `failed` toolset makes `status` `degraded` while the others keep working.
 - **`/health`** returns `status` (`ok`, or `degraded` when an optional component such as the viewer is down or a toolset failed; always HTTP 200) and a `components` map, e.g. `{"viewer":"unavailable: port 8090 in use"}` or `{"desiredState":"corrupt: …"}`.
 
+**Admin API (HTTP mode only)** — a loopback-only control channel on `127.0.0.1:8095` for the GUI and curl; MCP agents cannot reach it (ADR-019). Today it serves `GET /api/v1/health` and `POST /api/v1/token/rotate`; the toolset endpoints come next. Every request needs `Authorization: Bearer <token>`. The host creates the token on first start in `admin-token` next to `desired-state.json` (Linux `~/.local/share/ToolBox/admin-token`, macOS `~/Library/Application Support/ToolBox/admin-token`; override with `TOOLBOX_Admin__TokenPath`). stdio mode never opens it. A non-loopback `Host` gets 421 and a non-loopback `Origin` gets 403.
+
+Linux:
+
+```bash
+export TB="http://127.0.0.1:8095/api/v1"
+export TOKEN="$(cat "$HOME/.local/share/ToolBox/admin-token")"
+```
+
+macOS:
+
+```bash
+export TB="http://127.0.0.1:8095/api/v1"
+export TOKEN="$(cat "$HOME/Library/Application Support/ToolBox/admin-token")"
+```
+
+With the host running (`dotnet run --project src/ToolBox.Host -- --transport http`), expect 401, 401, 200 with JSON, then 404 on the MCP port:
+
+```bash
+curl -i "$TB/health"
+curl -i -H "Authorization: Bearer wrong" "$TB/health"
+curl -i -H "Authorization: Bearer $TOKEN" "$TB/health"
+curl -i "http://127.0.0.1:8080/api/v1/health"
+```
+
+Expect 421, then 403:
+
+```bash
+curl -i -H "Authorization: Bearer $TOKEN" -H "Host: evil.example:8095" "$TB/health"
+curl -i -H "Authorization: Bearer $TOKEN" -H "Origin: http://evil.example" "$TB/health"
+```
+
+Expect 204, then 401 for the old token; re-run the `export TOKEN=...` line for your OS and the last request returns 200:
+
+```bash
+curl -i -X POST -H "Authorization: Bearer $TOKEN" "$TB/token/rotate"
+curl -i -H "Authorization: Bearer $TOKEN" "$TB/health"
+```
+
+Docker check: the container must still start with the admin listener inside it (unreachable from outside, by design). Expect 200 from the curl:
+
+```bash
+docker compose up -d --build
+curl -i localhost:8081/health
+docker compose down
+```
+
 **Exit codes**
 
 | Code | Meaning |
