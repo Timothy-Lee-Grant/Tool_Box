@@ -168,7 +168,7 @@ TOOLBOX_Desired__Path=/tmp/tb/desired-state.json dotnet run --project src/ToolBo
 ```
 
 - The host reads the file at startup and **again whenever it changes** (edits within about 300 ms are coalesced into one reconcile), so toolsets turn on and off without a restart. It **never creates or writes the file**; the GUI/admin API will be the writer. Hand-editing is allowed but unsupported.
-- Turning Voxel off stops the viewer and frees its port; the world stays in memory, so turning it back on restores it. Clients see the change on their next `tools/list`. A call to a toolset that is off returns `toolset 'x' is off`.
+- Turning Voxel off stops the viewer and frees its port; the world stays in memory, so turning it back on restores it. Over stdio, connected clients are sent `tools/list_changed` and can refresh at once; over HTTP (stateless) clients see the change on their next `tools/list`. A call to a toolset that is off returns `toolset 'x' is off`.
 - `TOOLBOX_TOOLSETS` still pins `enabled`: file edits to a pinned toolset are ignored.
 - The file is only watched if its directory exists when the host starts. Otherwise changes apply on a manual reconcile request (the admin API will expose one in #35).
 - A corrupt or newer-version file is left untouched and `/health` shows `status: "degraded"` with `components.desiredState`. At startup defaults apply; while running, the last good roster is kept. A missing file is normal.

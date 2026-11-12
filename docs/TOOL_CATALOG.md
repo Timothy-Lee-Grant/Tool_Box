@@ -67,7 +67,7 @@ The Host registers every toolset but starts only the *enabled* ones; a disabled 
 - An **empty** `TOOLBOX_TOOLSETS=` enables **nothing** — it is not "use the default".
 - An unknown id fails startup with a message listing the valid ids.
 - At startup the Host logs the enabled toolsets on stderr (ADR-004), e.g. `Enabled toolsets: basics, voxel`.
-- The roster is applied at startup and again whenever the desired-state file changes (debounced) or a reconcile is requested. Agents see the change on their next `tools/list`; HTTP is stateless, so nothing is pushed (that is #34). `/health` `toolsetDetails` shows desired/effective/actual per toolset.
+- The roster is applied at startup and again whenever the desired-state file changes (debounced) or a reconcile is requested. **Tool availability is dynamic**: the tools an agent sees depend on which toolsets are enabled right now, not on what was registered at startup. Over **stdio** the host sends `notifications/tools/list_changed` after any reconcile that changes the set of visible tools (and advertises `tools.listChanged`), so a connected client can re-run `tools/list`. Over **HTTP** the server is stateless (ADR-007), so nothing is pushed and `tools.listChanged` is not advertised: clients are **pull-only** and see the change on their next `tools/list`. HTTP push is tracked in #77. A client holding a stale list that calls a tool of an off toolset gets `toolset 'x' is off`. `/health` `toolsetDetails` shows desired/effective/actual per toolset.
 - No tools were added. The only new agent-visible behaviour: a call to an off toolset's tool returns the error `toolset 'x' is off` instead of running.
 
 ## Transport independence
