@@ -23,6 +23,7 @@ flowchart LR
     CORE["ToolBox.Core<br/>catalog types · descriptors · server info · logging"]
     REC["ToolsetReconcilerService → ToolsetReconciler<br/>starts toolsets, opens the ToolsetGate"]
     GATE["ToolsetGate + MCP filters<br/>hide closed tools, 'toolset is off'"]
+    NOTIF["IToolListChangedNotifier<br/>stdio: sends list_changed · HTTP: no-op"]
     subgraph Enabled["Toolsets (all registered; started and visible only if enabled)"]
       B["Basics<br/>ping · server_info · current_time"]
       V["Voxel<br/>12 shape tools + VoxelWorld"]
@@ -39,6 +40,7 @@ flowchart LR
   COMP --> CAT --> Enabled
   COMP --> CORE
   COMP --> REC --> GATE
+  REC -- "gate snapshot changed" --> NOTIF -- "list_changed (stdio only)" --> T
   MCP --> GATE --> B & V & E
   REC -- "Start / Stop" --> VW
   V --> VW -- "world updates" --> Browser
@@ -48,6 +50,7 @@ Reading the picture:
 - **Agents** connect over one of two **transports** (ADR-007). The transport is picked at startup by `--transport`, then the `TOOLBOX_TRANSPORT` env var, then `appsettings.json`; the default is stdio.
 - **`AddToolBoxServer()`** is the composition root: the single place that decides what the server *is*. Both transports call it.
 - **`ToolBoxCatalog`** is the only place toolsets are named. Every toolset is registered, but only **enabled** ones are started and visible: the reconciler starts them and opens the gate, and the gate hides a disabled toolset's tools and its background services never run (ADR-018, partly superseding ADR-015).
+- **Tool-list change notification.** After each reconcile pass, `ToolsetReconcilerService` compares `ToolsetGate.Snapshot()` before and after and, only if the open set differs, calls `IToolListChangedNotifier` once (never at startup or shutdown). `RunStdioAsync` replaces the default no-op with `StdioToolListChangedNotifier`, which sends `notifications/tools/list_changed` on the single long-lived session. Stateless HTTP has no channel that outlives a request, so it keeps the no-op and does not advertise `tools.listChanged`; HTTP clients poll `tools/list`. Push over HTTP waits for the SDK 2.0 evaluation (#77). See ADR-022.
 - **Voxel** brings its own background work (ADR-010), now a start/stop lifecycle rather than a container-started service, which streams world changes to a browser viewer. The agent never talks to that channel.
 
 ## 2. Projects and dependencies
