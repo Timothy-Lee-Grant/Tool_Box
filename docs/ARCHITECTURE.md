@@ -168,10 +168,25 @@ Per request, in order:
 | Route | Purpose |
 |---|---|
 | `GET /api/v1/health` | `{version, uptime}` |
+| `GET /api/v1/status` | `status`, `version`, `uptime`, `components`, `desiredState {status, path, reason}`, and a `toolsets` map |
+| `GET /api/v1/toolsets`, `GET /api/v1/toolsets/{id}` | Per toolset: `desired`, `effective`, `actual` (`off`, `starting`, `on`, `stopping`, `failed`), `reason`, `pinnedBy`, `settings` (the last three omitted when null) |
+| `PUT /api/v1/toolsets/{id}/enabled` | Body `{"enabled": bool}`; 202; 409 `pinned-by-env` when `TOOLBOX_TOOLSETS` pins it |
+| `PUT /api/v1/toolsets/{id}/settings` | Body is a JSON object that replaces the toolset's settings; 202; allowed on a pinned toolset |
+| `POST /api/v1/reconcile` | Requests a reconcile; no write; 202 |
 | `POST /api/v1/token/rotate` | Replaces the token file; 204, no body; the old token stops working at once |
 
-The token is 32 random bytes (base64url) in `<LocalApplicationData>/ToolBox/admin-token` (mode 0600, directory 0700 on Unix; override `Admin:TokenPath` / `TOOLBOX_Admin__TokenPath`). Comparison hashes both sides with SHA-256 then `FixedTimeEquals`. Replacing the file by hand also rotates the token with no restart. The container sets the path under `/tmp/toolbox` because its user cannot write `/app`. Toolset endpoints (status, enabled, settings, reconcile) arrive in PR 2 of the plan (#35).
-- Desired-state file path: `Desired:Path` (env `TOOLBOX_Desired__Path`), default `LocalApplicationData/ToolBox/desired-state.json`. Not a port, but the other deployment key the Host reads at startup (ADR-017).
+The admin API is the single writer of the desired-state file (ADR-017). Every write is one critical section under `AdminWriteService`'s lock: validate (404 unknown id, 409 pin, 400 body) → `Load` → change one toolset → `Save` → `RequestReconcile()` → 202. The 202 body describes the state just saved, because `DesiredRosterSource`'s cached view is stale until the reconciler loop refreshes. Errors are `application/problem+json` with a stable `code` (ADR-020). The routes are not MCP tools (decision 7), and `/health` on the MCP port still shows neither `settings` nor `pinnedBy`.
+
+```mermaid
+flowchart LR
+  G[GUI / curl] -->|token| A["Admin :8095 guarded group"]
+  A -->|"1 write lock<br/>2 Load, modify, Save"| F[("desired-state.json")]
+  A -->|"3 RequestReconcile<br/>4 202 + resolved view"| R[Reconciler]
+  R --> B[ToolsetStatusBoard]
+  B -->|read| A
+```
+
+The token is 32 random bytes (base64url) in `<LocalApplicationData>/ToolBox/admin-token` (mode 0600, directory 0700 on Unix; override `Admin:TokenPath` / `TOOLBOX_Admin__TokenPath`). Comparison hashes both sides with SHA-256 then `FixedTimeEquals`. Replacing the file by hand also rotates the token with no restart. The container sets the path under `/tmp/toolbox` because its user cannot write `/app`.- Desired-state file path: `Desired:Path` (env `TOOLBOX_Desired__Path`), default `LocalApplicationData/ToolBox/desired-state.json`. Not a port, but the other deployment key the Host reads at startup (ADR-017).
 
 ### Config precedence (highest wins)
 

@@ -191,7 +191,7 @@ TOOLBOX_Ports__Mcp__Port=8085 dotnet run --project src/ToolBox.Host -- --transpo
 - **`/health`** also returns `toolsetDetails`: per toolset `desired` and `effective` (they differ only when `TOOLBOX_TOOLSETS` pins the roster), `actual` (`off`, `starting`, `on`, `stopping` or `failed`) and, for `failed`, a `reason`. `toolsets` lists only the toolsets that are on. `off` is normal; a `failed` toolset makes `status` `degraded` while the others keep working.
 - **`/health`** returns `status` (`ok`, or `degraded` when an optional component such as the viewer is down or a toolset failed; always HTTP 200) and a `components` map, e.g. `{"viewer":"unavailable: port 8090 in use"}` or `{"desiredState":"corrupt: …"}`.
 
-**Admin API (HTTP mode only)** — a loopback-only control channel on `127.0.0.1:8095` for the GUI and curl; MCP agents cannot reach it (ADR-019). Today it serves `GET /api/v1/health` and `POST /api/v1/token/rotate`; the toolset endpoints come next. Every request needs `Authorization: Bearer <token>`. The host creates the token on first start in `admin-token` next to `desired-state.json` (Linux `~/.local/share/ToolBox/admin-token`, macOS `~/Library/Application Support/ToolBox/admin-token`; override with `TOOLBOX_Admin__TokenPath`). stdio mode never opens it. A non-loopback `Host` gets 421 and a non-loopback `Origin` gets 403.
+**Admin API (HTTP mode only)** — a loopback-only control channel on `127.0.0.1:8095` for the GUI and curl; MCP agents cannot reach it (ADR-019). Endpoints: `GET /api/v1/health`, `GET /api/v1/status`, `GET /api/v1/toolsets[/{id}]`, `PUT /api/v1/toolsets/{id}/enabled`, `PUT /api/v1/toolsets/{id}/settings`, `POST /api/v1/reconcile`, `POST /api/v1/token/rotate`. Writes go to the desired-state file and return `202 Accepted`: the change is saved and a reconcile is queued, but `actual` may still show the old state, so poll `GET /status`. Errors are `application/problem+json` with a stable `code`: `unknown-toolset` (404), `pinned-by-env` (409, `enabled` only), `desired-state-unsupported` (409), `desired-state-write-failed` (500), `invalid-body` (400); a write without `Content-Type: application/json` gets 415. Every request needs `Authorization: Bearer <token>`. The host creates the token on first start in `admin-token` next to `desired-state.json` (Linux `~/.local/share/ToolBox/admin-token`, macOS `~/Library/Application Support/ToolBox/admin-token`; override with `TOOLBOX_Admin__TokenPath`). stdio mode never opens it. A non-loopback `Host` gets 421 and a non-loopback `Origin` gets 403.
 
 Linux:
 
@@ -229,6 +229,31 @@ Expect 204, then 401 for the old token; re-run the `export TOKEN=...` line for y
 curl -i -X POST -H "Authorization: Bearer $TOKEN" "$TB/token/rotate"
 curl -i -H "Authorization: Bearer $TOKEN" "$TB/health"
 ```
+
+Toolset endpoints (the `TOKEN` and `TB` variables from above). Expect 200 JSON, then 202 with `"desired":false`, then `actual` moving from `on` to `off`:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" "$TB/status"
+curl -i -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"enabled":false}' "$TB/toolsets/voxel/enabled"
+curl -s -H "Authorization: Bearer $TOKEN" "$TB/toolsets/voxel"
+```
+
+Expect 202 twice:
+
+```bash
+curl -i -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"key":"value"}' "$TB/toolsets/voxel/settings"
+curl -i -X POST -H "Authorization: Bearer $TOKEN" "$TB/reconcile"
+```
+
+Expect 404 `unknown-toolset`, 400 `invalid-body`, then 415:
+
+```bash
+curl -i -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"enabled":true}' "$TB/toolsets/nope/enabled"
+curl -i -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"enabled":"yes"}' "$TB/toolsets/voxel/enabled"
+curl -i -X PUT -H "Authorization: Bearer $TOKEN" -d '{"enabled":true}' "$TB/toolsets/voxel/enabled"
+```
+
+For 409 `pinned-by-env`, restart the host with `TOOLBOX_TOOLSETS=basics` set and repeat the `enabled` PUT. For 409 `desired-state-unsupported`, set `"schemaVersion": 99` in the desired-state file and repeat it; the file stays byte-identical.
 
 Docker check: the container must still start with the admin listener inside it (unreachable from outside, by design). Expect 200 from the curl:
 
