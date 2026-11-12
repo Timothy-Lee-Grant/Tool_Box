@@ -93,6 +93,36 @@ internal static class AdminApi
             return await writes.SetEnabledAsync(canonical, enabled, ct);
         });
 
+        // Body is a JSON object that replaces this toolset's settings. Allowed on a pinned toolset: the env
+        // pin only governs `enabled`. Values are not validated yet (ADR-017); only "is an object" is checked.
+        group.MapPut("/toolsets/{id}/settings", async (string id, HttpRequest request,
+            AdminWriteService writes, CancellationToken ct) =>
+        {
+            if (writes.CheckSettingsWritable(id, out string canonical) is { } refusal) return refusal;
+
+            Dictionary<string, JsonElement>? settings;
+            try
+            {
+                using JsonDocument doc = await JsonDocument.ParseAsync(request.Body, cancellationToken: ct);
+                if (doc.RootElement.ValueKind != JsonValueKind.Object)
+                    return AdminProblems.InvalidBody("Body must be a JSON object of settings.");
+                settings = doc.RootElement.Deserialize<Dictionary<string, JsonElement>>();
+            }
+            catch (JsonException)
+            {
+                return AdminProblems.InvalidBody("Body is not valid JSON.");
+            }
+
+            return await writes.SetSettingsAsync(canonical, settings ?? [], ct);
+        });
+
+        // Manual trigger: no write, no lock. The reconciler converges to whatever the file says now.
+        group.MapPost("/reconcile", (IToolsetReconciler reconciler) =>
+        {
+            reconciler.RequestReconcile();
+            return Results.Json(new { reconcile = "requested" }, statusCode: StatusCodes.Status202Accepted);
+        });
+
         // Replaces the token file with a fresh token. 204 and NO body: no endpoint ever returns the token;
         // the caller (same OS user) re-reads the file. The old token stops working at once.
         group.MapPost("/token/rotate", (AdminTokenStore tokens) =>

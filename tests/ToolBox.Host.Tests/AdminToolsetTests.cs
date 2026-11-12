@@ -328,4 +328,94 @@ public sealed class AdminToolsetTests : IDisposable
                 Assert.Equal(value, (bool)toolsets[id]!["enabled"]!);
         }
     }
+
+    // ---- PUT settings ----
+
+    private Task<HttpResponseMessage> PutSettings(string id, string body) =>
+        SendAsync(HttpMethod.Put, $"/toolsets/{id}/settings", body);
+
+    [Fact]
+    public async Task Put_settings_round_trips_and_leaves_enabled_alone()
+    {
+        await StartAsync("""{"schemaVersion":1,"toolsets":{"voxel":{"enabled":false,"future":"x"}}}""");
+
+        var response = await PutSettings("voxel", """{"dataDir":"/tmp/v","n":3}""");
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        var body = await JsonAsync(response);
+        Assert.True((bool)body["saved"]!);
+        Assert.Equal("/tmp/v", (string)body["toolset"]!["settings"]!["dataDir"]!);
+        Assert.False((bool)body["toolset"]!["desired"]!);
+
+        var voxel = FileJson()["toolsets"]!["voxel"]!;
+        Assert.Equal("/tmp/v", (string)voxel["settings"]!["dataDir"]!);
+        Assert.Equal(3, (int)voxel["settings"]!["n"]!);
+        Assert.False((bool)voxel["enabled"]!);
+        Assert.Equal("x", (string)voxel["future"]!);
+
+        // A second PUT replaces, it does not merge.
+        await PutSettings("voxel", """{"other":true}""");
+        var replaced = FileJson()["toolsets"]!["voxel"]!["settings"]!.AsObject();
+        Assert.Single(replaced);
+        Assert.NotNull(replaced["other"]);
+    }
+
+    [Fact]
+    public async Task Put_settings_is_allowed_on_a_toolset_pinned_by_the_environment()
+    {
+        await StartAsync(pin: "basics");
+        var response = await PutSettings("voxel", """{"a":1}""");
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        Assert.Equal(1, (int)FileJson()["toolsets"]!["voxel"]!["settings"]!["a"]!);
+    }
+
+    [Theory]
+    [InlineData("[1]")]
+    [InlineData("\"text\"")]
+    [InlineData("null")]
+    [InlineData("{ not json")]
+    [InlineData("")]
+    public async Task Put_settings_with_a_non_object_body_is_400(string body)
+    {
+        await StartAsync();
+        var response = await PutSettings("voxel", body);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("invalid-body", (string)(await JsonAsync(response))["code"]!);
+        Assert.False(File.Exists(DesiredPath));
+    }
+
+    [Fact]
+    public async Task Put_settings_for_an_unknown_toolset_is_404()
+    {
+        await StartAsync();
+        var response = await PutSettings("nope", "{}");
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal("unknown-toolset", (string)(await JsonAsync(response))["code"]!);
+    }
+
+    [Fact]
+    public async Task Put_settings_refuses_a_file_from_a_newer_build()
+    {
+        await StartAsync("""{"schemaVersion":99,"toolsets":{}}""");
+        byte[] before = File.ReadAllBytes(DesiredPath);
+        var response = await PutSettings("voxel", """{"a":1}""");
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(before, File.ReadAllBytes(DesiredPath));
+    }
+
+    // ---- POST reconcile ----
+
+    [Fact]
+    public async Task Post_reconcile_applies_a_hand_edited_file()
+    {
+        await StartAsync();
+        await Eventually(async () => await ActualAsync("voxel") == "on");
+
+        Directory.CreateDirectory(Path.GetDirectoryName(DesiredPath)!);
+        File.WriteAllText(DesiredPath, """{"schemaVersion":1,"toolsets":{"voxel":{"enabled":false}}}""");
+
+        var response = await SendAsync(HttpMethod.Post, "/reconcile");
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        Assert.Equal("requested", (string)(await JsonAsync(response))["reconcile"]!);
+        await Eventually(async () => await ActualAsync("voxel") == "off");
+    }
 }

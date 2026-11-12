@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using ToolBox.Core.Desired;
@@ -45,7 +46,35 @@ internal sealed class AdminWriteService
             : null;
     }
 
-    public async Task<IResult> SetEnabledAsync(string canonicalId, bool enabled, CancellationToken ct)
+    /// <summary>404 for an unknown id; otherwise null. Settings are writable even when the env pins <c>enabled</c>.</summary>
+    public IResult? CheckSettingsWritable(string id, out string canonical)
+    {
+        canonical = Canonical(id) ?? string.Empty;
+        return canonical.Length == 0 ? AdminProblems.UnknownToolset(id) : null;
+    }
+
+    public Task<IResult> SetEnabledAsync(string canonicalId, bool enabled, CancellationToken ct) =>
+        MutateAsync(canonicalId, intent =>
+        {
+            if (intent.Enabled == enabled) return false;
+            intent.Enabled = enabled;
+            return true;
+        }, ct);
+
+    /// <summary>Replaces the toolset's settings object. Never touches <c>Enabled</c>.</summary>
+    public Task<IResult> SetSettingsAsync(string canonicalId, Dictionary<string, JsonElement> settings, CancellationToken ct)
+    {
+        string incoming = JsonSerializer.Serialize(settings);
+        return MutateAsync(canonicalId, intent =>
+        {
+            if (intent.Settings is not null && JsonSerializer.Serialize(intent.Settings) == incoming) return false;
+            intent.Settings = settings;
+            return true;
+        }, ct);
+    }
+
+    /// <summary>The one critical section: Load, apply <paramref name="apply"/> to one toolset, Save, reconcile.</summary>
+    private async Task<IResult> MutateAsync(string canonicalId, Func<DesiredToolset, bool> apply, CancellationToken ct)
     {
         await _writeLock.WaitAsync(ct);
         try
@@ -64,9 +93,9 @@ internal sealed class AdminWriteService
             string? backupPath = null;
             // Unchanged: skip the write, but still reconcile below (cheap, and it self-heals).
             // A missing or corrupt file always needs a write so the file ends up holding the intent.
-            if (loaded.Status != DesiredStateLoadStatus.Ok || intent.Enabled != enabled)
+            bool changed = apply(intent);
+            if (loaded.Status != DesiredStateLoadStatus.Ok || changed)
             {
-                intent.Enabled = enabled;
                 DesiredStateSaveResult saved = _store.Save(state);
                 switch (saved.Outcome)
                 {
