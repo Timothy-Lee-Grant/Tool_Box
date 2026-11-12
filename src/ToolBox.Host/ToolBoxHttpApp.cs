@@ -75,6 +75,13 @@ internal static class ToolBoxHttpApp
             builder.WebHost.UseUrls(ports.Mcp.Url + ";" + ports.Admin.Url);
         }
 
+        // MCP Host/Origin guard settings (issue #66). Read only for now; the guard that enforces them is PR B.
+        // The admin URL is always last, so everything before it is an MCP listener.
+        string[] boundUrls = (builder.Configuration[WebHostDefaults.ServerUrlsKey] ?? string.Empty)
+            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        builder.Services.AddSingleton(McpGuardOptions.Resolve(
+            builder.Configuration, string.Join(';', boundUrls.SkipLast(1))));
+
         // Control plane (issue #36 / #35): a second loopback listener in the SAME app, so the admin
         // code reaches the store, board and reconciler directly. Only HTTP mode has it; stdio hosts are
         // spawned per agent session and would fight over the port. Admin:Enabled is the future opt-in.
