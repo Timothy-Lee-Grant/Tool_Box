@@ -11,8 +11,9 @@ namespace ToolBox.Embedded;
 /// is registered so far (plan 006 Step 3) — Steps 5-7 add the `physical`-tier
 /// tool types (flash/debug/serial), each gated behind
 /// <see cref="PhysicalActionGate.HardwareActionsAllowed"/> (Step 4). The Host
-/// composes this toolset through <see cref="CatalogEntry"/> only when it is listed in
-/// <c>TOOLBOX_TOOLSETS</c> / <c>Toolsets:Enabled</c>; it is off by default (ADR-015).
+/// always registers this toolset through <see cref="CatalogEntry"/> (cheap and side-effect-free,
+/// ADR-018) and the reconciler starts it only when it is enabled. It is off by default because
+/// the default roster is basics+voxel.
 /// </summary>
 public static class EmbeddedToolsetExtensions
 {
@@ -20,7 +21,7 @@ public static class EmbeddedToolsetExtensions
     /// This toolset's catalog listing (S0, #24). <c>Register</c> adds the MCP server
     /// builder (safe to call repeatedly) and then this toolset's doorway below.
     /// The firmware-directory lookup lives inside the doorway, so it only runs when
-    /// the Host actually enables this toolset.
+    /// <c>EmbeddedLifecycle.StartAsync</c> resolves it.
     /// </summary>
     public static ToolsetCatalogEntry CatalogEntry { get; } = new(
         Id: "embedded",

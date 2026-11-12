@@ -4,9 +4,9 @@ namespace ToolBox.Core;
 
 /// <summary>
 /// An immutable list of available toolsets. The Host builds one (it is the only place
-/// allowed to name toolsets, ADR-003). At runtime the Host calls <see cref="ComposeAll"/>: every
+/// allowed to name toolsets, ADR-003). The Host calls <see cref="ComposeAll"/>: every
 /// toolset is registered (cheap, side-effect-free) and the reconciler decides which are started
-/// and visible. <see cref="Compose"/> (enabled entries only) is the earlier startup-only form (ADR-015).
+/// and visible (ADR-018).
 /// </summary>
 public sealed class ToolsetCatalog
 {
@@ -74,40 +74,4 @@ public sealed class ToolsetCatalog
             ? entry
             : throw new InvalidOperationException(
                 $"unknown toolset id '{id}'. Valid ids: {string.Join(", ", _entries.Values.Select(e => e.Id))}.");
-
-    /// <summary>
-    /// Runs <see cref="ToolsetCatalogEntry.Register"/> for each enabled id, in the order given.
-    /// Fails loudly on an unknown id, listing the valid ones. Ids are case-insensitive;
-    /// repeated ids are registered once.
-    /// </summary>
-    /// <returns>
-    /// For each composed entry id, the service descriptors its <c>Register</c> added. The Host uses
-    /// this to learn which tools belong to which toolset (the gate's tool-to-toolset map).
-    /// </returns>
-    public IReadOnlyDictionary<string, IReadOnlyList<ServiceDescriptor>> Compose(
-        IServiceCollection services, IEnumerable<string> enabledIds)
-    {
-        ArgumentNullException.ThrowIfNull(services);
-        ArgumentNullException.ThrowIfNull(enabledIds);
-
-        var selected = new List<ToolsetCatalogEntry>();
-        foreach (var id in enabledIds)
-        {
-            var entry = Resolve(id);
-            if (!selected.Contains(entry))
-            {
-                selected.Add(entry);
-            }
-        }
-
-        var added = new Dictionary<string, IReadOnlyList<ServiceDescriptor>>(StringComparer.OrdinalIgnoreCase);
-        foreach (var entry in selected)
-        {
-            int before = services.Count;
-            entry.Register(services);
-            added[entry.Id] = services.Skip(before).ToList();
-        }
-
-        return added;
-    }
 }
