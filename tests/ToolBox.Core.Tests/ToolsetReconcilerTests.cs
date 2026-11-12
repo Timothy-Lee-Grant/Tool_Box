@@ -13,9 +13,13 @@ public class ToolsetReconcilerTests
         public int Active;
         public int MaxActive;
 
+        /// <summary>Completes once StartAsync has been entered, so tests wait on an event instead of polling the log.</summary>
+        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public async Task StartAsync(CancellationToken ct)
         {
             log.Add($"start:{id}");
+            Started.TrySetResult();
             var now = Interlocked.Increment(ref Active);
             MaxActive = Math.Max(MaxActive, now);
             try
@@ -182,15 +186,15 @@ public class ToolsetReconcilerTests
         voxel.StartBlocker = release.Task;
 
         var first = r.ReconcileAsync(new[] { "voxel" });
-        while (!_log.Contains("start:voxel")) await Task.Yield();
+        await voxel.Started.Task.WaitAsync(TimeSpan.FromSeconds(10));
         var second = r.ReconcileAsync(new[] { "voxel", "basics" });
         using var cts = new CancellationTokenSource();
         var third = r.ReconcileAsync(new[] { "basics" }, cts.Token);
         await cts.CancelAsync();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => third);
-        release.SetResult();
+        try { await Assert.ThrowsAnyAsync<OperationCanceledException>(() => third); }
+        finally { release.TrySetResult(); }
 
-        await first;
+        await first.WaitAsync(TimeSpan.FromSeconds(10));
         var secondResult = await second;
         Assert.False(secondResult.Superseded);
         Assert.Equal(new[] { "basics", "voxel" }, _gate.Snapshot());
@@ -212,13 +216,12 @@ public class ToolsetReconcilerTests
         voxel.StartBlocker = release.Task;
 
         var first = r.ReconcileAsync(new[] { "voxel" });
-        // Give the first run time to take the lock and block inside Start.
-        while (!_log.Contains("start:voxel")) await Task.Yield();
+        await voxel.Started.Task.WaitAsync(TimeSpan.FromSeconds(10));
         var second = r.ReconcileAsync(new[] { "voxel", "basics" });
         var third = r.ReconcileAsync(new[] { "basics" });
         release.SetResult();
 
-        var results = await Task.WhenAll(first, second, third);
+        var results = await Task.WhenAll(first, second, third).WaitAsync(TimeSpan.FromSeconds(10));
         Assert.True(results[1].Superseded);
         Assert.False(results[2].Superseded);
         Assert.Equal(1, voxel.MaxActive);

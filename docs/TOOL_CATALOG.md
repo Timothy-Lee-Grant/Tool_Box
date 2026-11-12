@@ -2,6 +2,8 @@
 
 Every tool the platform exposes, by toolset. Conventions: snake_case tool names; every tool and parameter carries a `[Description]` (enforced by `DescriptionConventionTests`); all string output is bounded by `OutputLimiter`; each tool is classified **read** (observes) or **write** (mutates) — the classification that will later drive read-only deployment mode.
 
+> **Admin endpoints are not tools.** The loopback admin API (`/api/v1/*`, ADR-019/ADR-020) that reads and changes toolset state is deliberately never registered as MCP tools, so agents cannot change their own settings (epic #23, decision 7). `AdminNotMcpTests` pins this.
+
 ## Toolset: Basics
 
 Trivial connectivity and identity tools. They exist to prove the plumbing (plan 001); real capabilities arrive with later toolsets.

@@ -59,6 +59,28 @@ internal sealed class DesiredRosterSource
         return result;
     }
 
+    public IReadOnlyList<string> KnownIds => _knownIds;
+
+    /// <summary>The roster as last resolved by the reconciler loop (may lag a just-saved file).</summary>
+    public EnabledResolution Current { get { lock (_lock) { return _lastGood; } } }
+
+    /// <summary>
+    /// The admin API's view of one toolset (#35): <see cref="Details"/> plus the pin and settings.
+    /// Takes the resolution explicitly so a write can describe the state it just saved instead of the
+    /// cached roster, which stays stale until the reconciler loop runs.
+    /// </summary>
+    public static AdminToolsetView Describe(EnabledResolution resolution, ToolsetStatusBoard board, string id)
+    {
+        var state = board.Get(id);
+        return new AdminToolsetView(
+            Desired: resolution.Desired.Contains(id, StringComparer.OrdinalIgnoreCase),
+            Effective: resolution.Effective.Contains(id, StringComparer.OrdinalIgnoreCase),
+            Actual: state.Status.ToString().ToLowerInvariant(),
+            Reason: state.Status == ToolsetStatus.Failed ? state.Reason : null,
+            PinnedBy: resolution.PinnedBy.TryGetValue(id, out var pin) ? pin : null,
+            Settings: resolution.Settings.TryGetValue(id, out var settings) ? settings : null);
+    }
+
     /// <summary>Re-reads the file and returns the roster the reconciler should converge to.</summary>
     public IReadOnlyList<string> Refresh()
     {
@@ -82,6 +104,22 @@ internal sealed class DesiredRosterSource
         }
     }
 }
+
+/// <summary>
+/// One toolset as the admin API reports it. A separate type from <see cref="ToolsetDetail"/> on purpose:
+/// /health is unauthenticated and settings may hold paths, so they must never appear there.
+/// States use the /health vocabulary: off, starting, on, stopping, failed.
+/// </summary>
+internal sealed record AdminToolsetView(
+    bool Desired,
+    bool Effective,
+    string Actual,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    string? Reason,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    string? PinnedBy,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyDictionary<string, System.Text.Json.JsonElement>? Settings);
 
 /// <summary>One toolset's row in /health. <c>Reason</c> is set only when <c>Actual</c> is "failed".</summary>
 internal sealed record ToolsetDetail(
