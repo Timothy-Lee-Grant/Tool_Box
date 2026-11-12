@@ -73,7 +73,8 @@ public sealed class ReconcileTriggerTests : IDisposable
 
     private sealed record Rig(
         ToolsetReconcilerService Service, CountingLifecycle Voxel, ToolsetGate Gate,
-        ComponentStatusRegistry Registry, ManualClock Clock);
+        ComponentStatusRegistry Registry, ManualClock Clock,
+        DesiredRosterSource Roster, ToolsetStatusBoard Board);
 
     private Rig MakeRig(string? pin = null, string? initialFile = null)
     {
@@ -84,14 +85,15 @@ public sealed class ReconcileTriggerTests : IDisposable
         string[] known = ["basics", "voxel", "embedded"];
         var resolution = EnabledResolution.Resolve(config, store.Load().State, known);
         var gate = new ToolsetGate();
+        var board = new ToolsetStatusBoard();
         var voxel = new CountingLifecycle("voxel");
-        var reconciler = new ToolsetReconciler(known, [voxel], gate, new ToolsetStatusBoard(), TimeProvider.System);
+        var reconciler = new ToolsetReconciler(known, [voxel], gate, board, TimeProvider.System);
         var roster = new DesiredRosterSource(store, config, known, registry, resolution);
         var clock = new ManualClock();
         var service = new ToolsetReconcilerService(
             reconciler, roster, resolution, NullLogger<ToolsetReconcilerService>.Instance, clock,
             TimeSpan.FromMilliseconds(300), watchFile: false);
-        return new Rig(service, voxel, gate, registry, clock);
+        return new Rig(service, voxel, gate, registry, clock, roster, board);
     }
 
     private static async Task Eventually(Func<bool> condition)
@@ -148,18 +150,24 @@ public sealed class ReconcileTriggerTests : IDisposable
     [Fact]
     public async Task EnvPinnedToolset_IgnoresFileEdit()
     {
-        var rig = MakeRig(pin: "basics");
+        var rig = MakeRig(pin: "basics", initialFile: VoxelFile(on: false));
         await rig.Service.StartAsync(default);
+        bool Desired() => rig.Roster.Details(rig.Board)["voxel"].Desired;
+        Assert.False(Desired());
 
+        // Run 1: the file says on. Seeing the loop re-read it (Desired flips) proves the run happened.
         File.WriteAllText(FilePath, VoxelFile(on: true));
         ((IToolsetReconciler)rig.Service).RequestReconcile();
-        // A second manual request after the first is processed proves the first one has run.
-        await Task.Delay(200);
+        await Eventually(Desired);
+
+        // Run 2: back to off. The loop is serial, so once this flip is visible run 1 has fully finished.
+        File.WriteAllText(FilePath, VoxelFile(on: false));
         ((IToolsetReconciler)rig.Service).RequestReconcile();
-        await Task.Delay(200);
+        await Eventually(() => !Desired());
 
         Assert.False(rig.Gate.IsOn("voxel"));
         Assert.Equal(0, rig.Voxel.Starts);
+        Assert.False(rig.Roster.Details(rig.Board)["voxel"].Effective);
         await rig.Service.StopAsync(default);
     }
 
@@ -209,10 +217,14 @@ public sealed class ReconcileTriggerTests : IDisposable
         File.WriteAllText(tmp, VoxelFile(on: false));
         File.Move(tmp, FilePath, overwrite: true);
 
-        var deadline = DateTime.UtcNow.AddSeconds(15);
+        // Deliberate exception to the fake-clock rule: this test exercises the real FileSystemWatcher,
+        // the real debounce and the real clock. The loop exits at the first success; the deadline only
+        // bounds the failure case, so it is generous for slow CI runners.
+        var timeout = TimeSpan.FromSeconds(60);
+        var deadline = DateTime.UtcNow + timeout;
         while ((await ToolNames()).Contains("place_block"))
         {
-            if (DateTime.UtcNow > deadline) throw new TimeoutException("voxel tools still listed after the file turned voxel off");
+            if (DateTime.UtcNow > deadline) throw new TimeoutException($"voxel tools still listed {timeout.TotalSeconds}s after the file turned voxel off");
             await Task.Delay(100);
         }
 
