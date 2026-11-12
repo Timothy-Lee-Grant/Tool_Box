@@ -280,6 +280,13 @@ docker compose up --build        # healthy at http://localhost:8081/health
 
 Multi-stage, non-root, layer-cache-ordered Dockerfile; CI builds the image and polls `/health` on every push, so "the container boots" is a continuously-verified claim, not documentation that quietly drifted from reality. Consuming this from another project (LLM_Monitor's LangGraph agent, via `langchain-mcp-adapters`): [`docs/LLM_MONITOR_INTEGRATION.md`](docs/LLM_MONITOR_INTEGRATION.md).
 
+**DNS-rebinding defence on the MCP port (ADR-021).** In HTTP mode every request to `/mcp` and `/health` is checked, so a web page in your browser cannot talk to the local server:
+
+- `Host` must be `localhost`, `127.0.0.1` or `[::1]` (any port, so the published `localhost:8081` works) or a name you list in `Security:Mcp:AllowedHosts`; anything else gets **421**. In compose that is `TOOLBOX_Security__Mcp__AllowedHosts__0: "toolbox"`, the service name other containers use.
+- `Origin`, when present, must be a loopback origin (any port) or listed in `Security:Mcp:AllowedOrigins`; anything else gets **403**. Requests with no `Origin` (agents, curl) pass.
+- Binding a non-loopback address with no extra names logs a startup warning, because only loopback names will work.
+- **Migrating an external compose** (LLM_Monitor): the bare `AllowedHosts` key still works as a fallback and logs an INFO line suggesting the new key. While it is set, ASP.NET's own host filtering answers a forged `Host` with 400 before our guard can answer 421. Switch to `Security:Mcp:AllowedHosts` to get 421.
+
 The Voxel viewer works through the container too — this compose file publishes `8090:8090` alongside the MCP port and sets both bind addresses to `0.0.0.0` explicitly (a loopback socket inside a container can't be reached through published ports), so `viewer/index.html` (`ws://localhost:8090/voxel/`) connects the same way whether the Host is running via `dotnet run` or inside Docker.
 
 ## The engineering process behind this repo

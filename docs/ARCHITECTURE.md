@@ -151,7 +151,7 @@ The HTTP host opens a **second loopback endpoint** on the same `WebApplication`.
 
 ```mermaid
 flowchart LR
-  A[Agent] -->|MCP| M["Kestrel 127.0.0.1:8080<br/>/mcp, /health<br/>/api/v1/* gives 404"]
+  A[Agent] -->|MCP| M["Kestrel 127.0.0.1:8080<br/>1 PlaneSeparation<br/>2 McpGuard: Host 421 / Origin 403<br/>/mcp, /health<br/>/api/v1/* gives 404"]
   G[GUI / curl] --> AD["Kestrel 127.0.0.1:8095<br/>1 PlaneSeparation: LocalPort<br/>2 Host 421 / Origin 403<br/>3 Bearer 401<br/>/api/v1/health, /token/rotate"]
   TS[("admin-token 0600")] -.AdminTokenStore, re-read on mtime change.-> AD
   TS -.same-user read.-> G
@@ -163,7 +163,8 @@ Per request, in order:
 
 1. `PlaneSeparationMiddleware` decides by the socket's `LocalPort`, never the `Host` header: `/api/v1` is 404 on the MCP port; everything except `/api/v1` is 404 on the admin port.
 2. `AdminGuardMiddleware` (admin socket only, before routing): `Host` must be `127.0.0.1`, `localhost` or `[::1]` with the admin port, else 421; a present `Origin` must be a loopback origin on the admin port, else 403 (no `Origin` passes). No CORS headers are ever sent. Then `Authorization: Bearer <token>` is required, else 401 with `WWW-Authenticate: Bearer` and an empty body. A token in the query string is not accepted. A `PUT`/`POST` with a body needs `Content-Type: application/json`, else 415.
-3. Routing: `MapAdminApi()` returns only the `/api/v1` group.
+3. `McpGuardMiddleware` (MCP socket only, ADR-021): `Host` must be a loopback name or listed in `Security:Mcp:AllowedHosts`, compared by hostname only (a published Docker port differs from the listener's), else 421; a present `Origin` must be a loopback origin on any port or listed in `Security:Mcp:AllowedOrigins`, else 403; no `Origin` passes. It covers `/mcp` and `/health`, sends an empty body and no CORS headers. Both guards share `HostOriginPolicy`. If `Security:Mcp:AllowedHosts` is unset, the legacy `AllowedHosts` key is used (ASP.NET's own host filtering then answers 400 first for forged hosts). `McpGuardOptions.LogStartup` warns when MCP binds a non-loopback address with only the defaults.
+4. Routing: `MapAdminApi()` returns only the `/api/v1` group.
 
 | Route | Purpose |
 |---|---|
