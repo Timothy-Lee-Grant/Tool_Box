@@ -15,9 +15,11 @@ services:
       # unreachable from the published ports, so both listeners opt in to all interfaces.
       TOOLBOX_Ports__Mcp__Address: "0.0.0.0"
       TOOLBOX_Ports__Viewer__Address: "0.0.0.0"
-      # DNS-rebinding defense (SDK docs guidance, queued for ADR-008):
-      # accept only the names this server is legitimately addressed by.
-      AllowedHosts: "localhost;127.0.0.1;toolbox"
+      # DNS-rebinding defense (ADR-021): McpGuardMiddleware answers 421 for any Host that is not
+      # loopback (always allowed, any port, so localhost:8081 works) or listed here. The service
+      # name is what other containers (LLM_Monitor) send. Deliberately NOT the bare AllowedHosts:
+      # ASP.NET's HostFiltering would answer 400 before our guard could answer 421.
+      TOOLBOX_Security__Mcp__AllowedHosts__0: "toolbox"
     healthcheck:
       # curl exists because the Dockerfile installs it — the aspnet base image
       # ships without it (LLM_Monitor's slim-image lesson, .NET edition).

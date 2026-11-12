@@ -75,7 +75,7 @@ internal static class ToolBoxHttpApp
             builder.WebHost.UseUrls(ports.Mcp.Url + ";" + ports.Admin.Url);
         }
 
-        // MCP Host/Origin guard settings (issue #66). Read only for now; the guard that enforces them is PR B.
+        // MCP Host/Origin guard settings (issue #66), enforced by McpGuardMiddleware.
         // The admin URL is always last, so everything before it is an MCP listener.
         string[] boundUrls = (builder.Configuration[WebHostDefaults.ServerUrlsKey] ?? string.Empty)
             .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -111,6 +111,8 @@ internal static class ToolBoxHttpApp
                 PortTable.PortKey(PortTable.Mcp), PortTable.AddressKey(PortTable.Mcp));
         }
 
+        app.Services.GetRequiredService<McpGuardOptions>().LogStartup(app.Logger);
+
         // The token file must exist before the admin listener opens (created here, never replaced).
         app.Services.GetRequiredService<AdminTokenStore>().EnsureExists();
 
@@ -128,6 +130,10 @@ internal static class ToolBoxHttpApp
 
         // Second: on the admin socket, Host/Origin checks, then the bearer token, before any routing.
         app.UseMiddleware<AdminGuardMiddleware>();
+
+        // Same idea for the MCP socket (issue #66): Host 421 / Origin 403 against DNS rebinding. Both guards are
+        // by-socket, so their relative order does not matter; each ignores the other's port.
+        app.UseMiddleware<McpGuardMiddleware>();
 
         // Control-plane routes, only the guarded /api/v1 group (never MCP tools: decision 7).
         app.MapAdminApi();
