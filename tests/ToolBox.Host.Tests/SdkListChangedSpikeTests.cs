@@ -22,7 +22,15 @@ namespace ToolBox.Host.Tests;
 ///   1.2 stateless HTTP can NOT deliver it (and what the SDK does when asked);
 ///   1.3 what the initialize response advertises (tools.listChanged) on each transport;
 ///   1.4 if stateless HTTP advertises it, which knob turns it off.
-/// Uses throwaway tools, not the production Host (the notifier does not exist yet, that is step 2+).
+/// Uses throwaway tools, not the production Host.
+///
+/// CHARACTERIZATION TESTS: these record what SDK 1.4.1 actually does (observed, not guessed;
+/// run on next @ 35ac714, all passing). If an SDK 2.0 upgrade (#77) turns one red, that is the
+/// behaviour that changed, e.g. stateless/subscription-based HTTP push. Observed on 1.4.1:
+///   1.1 McpServer resolves from DI on stdio; SendNotificationAsync reaches the client.
+///   1.2 Stateless HTTP delivers nothing; GET /mcp (SSE) returns 405.
+///   1.3 stdio advertises tools.listChanged=true; stateless HTTP does NOT (the SDK fix is in 1.4.1).
+///   1.4 An explicit Capabilities.Tools.ListChanged=false works, but is not needed.
 /// </summary>
 public class SdkListChangedSpikeTests(Xunit.Abstractions.ITestOutputHelper output)
 {
@@ -177,7 +185,7 @@ public class SdkListChangedSpikeTests(Xunit.Abstractions.ITestOutputHelper outpu
         var winner = await Task.WhenAny(notified.Task, Task.Delay(TimeSpan.FromSeconds(3)));
         Assert.True(winner != notified.Task, $"stateless HTTP unexpectedly delivered list_changed ({sendOutcome})");
 
-        // What does a client's standalone GET stream look like? Expect "not allowed" in stateless mode.
+        // Observed on 1.4.1: the standalone GET stream is "405 Method Not Allowed" in stateless mode (#77).
         using var http = new HttpClient();
         using var req = new HttpRequestMessage(HttpMethod.Get, $"{url}/mcp");
         req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
@@ -207,8 +215,9 @@ public class SdkListChangedSpikeTests(Xunit.Abstractions.ITestOutputHelper outpu
 
         bool? listChanged = client.ServerCapabilities.Tools?.ListChanged;
         output.WriteLine($"stateless HTTP tools.listChanged = {listChanged?.ToString() ?? "null"}");
-        // Desired end state is "not true". The spike records what 1.4.1 actually reports by name:
-        // if this fails with "observed: True" the SDK advertises a capability we cannot honour.
+        // Regression pin (#34 step 6): 1.4.1 does NOT advertise listChanged on stateless HTTP, which is
+        // right because we cannot honour it. If this fails, the SDK now advertises a capability we
+        // cannot honour (or, after #77, HTTP push exists and this pin should be revisited).
         Assert.True(listChanged != true,
             $"stateless HTTP advertises tools.listChanged; observed: {listChanged?.ToString() ?? "null"}");
     }

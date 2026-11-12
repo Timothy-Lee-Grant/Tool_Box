@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using ToolBox.Core.Logging;
 using ToolBox.Core.Ports;
@@ -66,6 +67,9 @@ static async Task RunStdioAsync(string[] args)
     builder.Services
         .AddToolBoxServer(builder.Configuration)
         .WithStdioServerTransport();
+
+    // stdio has one long-lived session, so it can push tools/list_changed (#34); HTTP keeps the no-op.
+    builder.Services.Replace(ServiceDescriptor.Singleton<IToolListChangedNotifier, StdioToolListChangedNotifier>());
 
     await builder.Build().RunAsync();
 }

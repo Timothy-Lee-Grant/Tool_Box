@@ -82,6 +82,8 @@ internal static class ToolBoxServerComposition
 
         // Reconciles at startup, on desired-state file change (debounced) and on manual request;
         // reconciles to nothing at shutdown. The same instance serves as the manual trigger.
+        // Default: nobody to push to (stateless HTTP). stdio replaces it in Program.cs (#34).
+        services.TryAddSingleton<IToolListChangedNotifier, NullToolListChangedNotifier>();
         services.AddSingleton<ToolsetReconcilerService>();
         services.AddSingleton<IToolsetReconciler>(sp => sp.GetRequiredService<ToolsetReconcilerService>());
         services.AddHostedService(sp => sp.GetRequiredService<ToolsetReconcilerService>());

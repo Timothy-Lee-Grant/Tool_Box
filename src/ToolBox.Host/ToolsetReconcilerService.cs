@@ -23,6 +23,8 @@ internal sealed class ToolsetReconcilerService : IHostedService, IToolsetReconci
     public static readonly TimeSpan DefaultDebounce = TimeSpan.FromMilliseconds(300);
 
     private readonly ToolsetReconciler _reconciler;
+    private readonly ToolsetGate _gate;
+    private readonly IToolListChangedNotifier _notifier;
     private readonly DesiredRosterSource _roster;
     private readonly EnabledResolution _resolution;
     private readonly ILogger<ToolsetReconcilerService> _logger;
@@ -37,6 +39,8 @@ internal sealed class ToolsetReconcilerService : IHostedService, IToolsetReconci
 
     public ToolsetReconcilerService(
         ToolsetReconciler reconciler,
+        ToolsetGate gate,
+        IToolListChangedNotifier notifier,
         DesiredRosterSource roster,
         EnabledResolution resolution,
         ILogger<ToolsetReconcilerService> logger,
@@ -45,6 +49,8 @@ internal sealed class ToolsetReconcilerService : IHostedService, IToolsetReconci
         bool watchFile = true)
     {
         _reconciler = reconciler;
+        _gate = gate;
+        _notifier = notifier;
         _roster = roster;
         _resolution = resolution;
         _logger = logger;
@@ -127,14 +133,21 @@ internal sealed class ToolsetReconcilerService : IHostedService, IToolsetReconci
     {
         try
         {
+            var before = _gate.Snapshot();
             var roster = _roster.Refresh();
             var result = await _reconciler.ReconcileAsync(roster, ct);
+            var changed = !before.SequenceEqual(_gate.Snapshot(), StringComparer.OrdinalIgnoreCase);
             if (result.Started.Count > 0 || result.Stopped.Count > 0)
             {
                 _logger.LogInformation("Reconciled: started [{Started}], stopped [{Stopped}]",
                     string.Join(", ", result.Started), string.Join(", ", result.Stopped));
             }
             LogFailures(result, "start");
+
+            // Once per pass, after the gate is final, and only if the visible set really changed
+            // (a failed start closes the gate again, so before == after and nothing is sent).
+            // Startup and shutdown reconciles never come through here: no client yet / going away.
+            if (changed) await NotifySafelyAsync(ct);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -144,6 +157,13 @@ internal sealed class ToolsetReconcilerService : IHostedService, IToolsetReconci
         {
             _logger.LogError(ex, "Reconcile failed unexpectedly; the next trigger will retry.");
         }
+    }
+
+    private async Task NotifySafelyAsync(CancellationToken ct)
+    {
+        try { await _notifier.NotifyAsync(ct); }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex) { _logger.LogError(ex, "tools/list_changed notification failed; the reconcile loop continues."); }
     }
 
     private void LogFailures(ReconcileResult result, string verb)
