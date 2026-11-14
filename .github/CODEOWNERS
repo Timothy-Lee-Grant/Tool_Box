@@ -1,0 +1,33 @@
+# High-risk paths (epic #84). A PR touching any of these needs the owner's review
+# before it can merge into `next`; everything else may auto-merge after CI.
+# Security code must match a pattern here; if you add such code, add its pattern in the same PR.
+# Patterns for files that do not exist yet (lock files, global.json, ...) are intentional.
+/.github/ @Timothy-Lee-Grant
+/CLAUDE.md @Timothy-Lee-Grant
+/.claude/ @Timothy-Lee-Grant
+/docs/DECISIONS.md @Timothy-Lee-Grant
+/Dockerfile @Timothy-Lee-Grant
+/docker-compose.yml @Timothy-Lee-Grant
+/.dockerignore @Timothy-Lee-Grant
+/Directory.Build.props @Timothy-Lee-Grant
+/Directory.Packages.props @Timothy-Lee-Grant
+/global.json @Timothy-Lee-Grant
+/nuget.config @Timothy-Lee-Grant
+*.csproj @Timothy-Lee-Grant
+**/packages.lock.json @Timothy-Lee-Grant
+/scripts/ @Timothy-Lee-Grant
+/src/ToolBox.Host/Program.cs @Timothy-Lee-Grant
+/src/ToolBox.Host/ToolBoxHttpApp.cs @Timothy-Lee-Grant
+/src/ToolBox.Host/Ports/ @Timothy-Lee-Grant
+/src/ToolBox.Host/*Guard* @Timothy-Lee-Grant
+/src/ToolBox.Host/HostOriginPolicy.cs @Timothy-Lee-Grant
+/src/ToolBox.Host/PlaneSeparationMiddleware.cs @Timothy-Lee-Grant
+/src/ToolBox.Host/Admin* @Timothy-Lee-Grant
+/src/ToolBox.Core/Admin/ @Timothy-Lee-Grant
+/src/ToolBox.Core/Ports/ @Timothy-Lee-Grant
+/tests/ToolBox.Core.Tests/AdminTokenStoreTests.cs @Timothy-Lee-Grant
+/tests/ToolBox.Host.Tests/Admin* @Timothy-Lee-Grant
+/tests/ToolBox.Host.Tests/HostOriginPolicyTests.cs @Timothy-Lee-Grant
+/tests/ToolBox.Host.Tests/McpGuardTests.cs @Timothy-Lee-Grant
+/tests/ToolBox.Host.Tests/PlaneSeparationTests.cs @Timothy-Lee-Grant
+/tests/ToolBox.Host.Tests/PortSettingsTests.cs @Timothy-Lee-Grant
