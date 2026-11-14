@@ -19,6 +19,12 @@ flowchart LR
 ## How it was verified
 <!-- CI run, new tests, and any manual check (command + output). -->
 
+## Timothy summary
+<!-- 5 lines: what changed / why / risk (low or high tier) / how to verify / what to learn. -->
+
+## Manual checks
+<!-- Things CI can't run (Docker, macOS, browser, hardware). One per line: - [ ] command · expected output · what it proves. Write "none" if none. -->
+
 ## Checklist
 - [ ] Targets `next`, not `main`
 - [ ] CI is green

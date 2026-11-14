@@ -31,3 +31,4 @@
 /tests/ToolBox.Host.Tests/McpGuardTests.cs @Timothy-Lee-Grant
 /tests/ToolBox.Host.Tests/PlaneSeparationTests.cs @Timothy-Lee-Grant
 /tests/ToolBox.Host.Tests/PortSettingsTests.cs @Timothy-Lee-Grant
+/tests/ToolBox.Core.Tests/PortProbeTests.cs @Timothy-Lee-Grant
