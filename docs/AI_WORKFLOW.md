@@ -1,6 +1,6 @@
 # How Tool_Box is built: supervised autonomy
 
-Tool_Box is developed with Claude working *inside GitHub*: work starts as an issue, the discussion happens in comments, code arrives as a pull request, and GitHub itself decides whether it can merge. Epic #84 moved Timothy from "in the loop at every step" to "on the loop at every decision". `CLAUDE.md` holds the rules the agent follows; this page explains the system and why it is shaped this way. ADR-013 records the original issue-driven decision; the supervised-autonomy ADR (written in the final step of epic #84) supersedes its "one approved step at a time" and "Timothy merges PRs" parts.
+Tool_Box is developed with Claude working *inside GitHub*: work starts as an issue, the discussion happens in comments, code arrives as a pull request, and GitHub itself decides whether it can merge. Epic #84 moved Timothy from "in the loop at every step" to "on the loop at every decision". `CLAUDE.md` holds the rules the agent follows; this page explains the system and why it is shaped this way. Unfamiliar term? See the [glossary](GLOSSARY.md). ADR-013 records the original issue-driven decision; the supervised-autonomy ADR (written in the final step of epic #84) supersedes its "one approved step at a time" and "Timothy merges PRs" parts.
 
 ## The problem it solves
 1. **Context bloat.** Plans 001–005 lived in long markdown files and `CLAUDE.md` grew to hold every convention. Fix: scope memory to the task. The issue holds task memory; `CLAUDE.md` stays short.
