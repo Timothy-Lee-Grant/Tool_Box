@@ -59,7 +59,7 @@ Other labels: `needs-timothy` (Claude is blocked on you) and `claude:paused` (ki
 | Tier | Paths | Rule |
 |---|---|---|
 | Low | tests, docs, toolsets, refactors, ordinary Host/Core code | auto-merge after CI |
-| High | everything in `.github/CODEOWNERS` (workflows, `CLAUDE.md`, `.claude/`, `docs/DECISIONS.md`, Docker files, `*.csproj`, `scripts/`, `Program.cs`, `ToolBoxHttpApp.cs`, `Ports/`, guards, auth and admin code, and their tests) | open the PR, add `needs-timothy`; GitHub blocks the merge until Timothy reviews |
+| High | everything in `.github/CODEOWNERS` (workflows, `CLAUDE.md`, `.claude/`, `docs/DECISIONS.md`, Docker files, `*.csproj`, `scripts/`, `Program.cs`, `ToolBoxHttpApp.cs`, `Ports/`, guards, auth and admin code, and their tests) | open the PR, enable auto-merge, add `needs-timothy`; GitHub blocks the merge until Timothy's code-owner review, so his approval is the single click |
 
 This is **enforced by GitHub, not by convention**: the `next-gate` ruleset requires code-owner review, and CODEOWNERS lists the high-risk paths. CODEOWNERS protects by path, not intent, so the reviewer also watches for low-risk files that add command, file or network capabilities. A GitHub quirk worth knowing: an author cannot be asked to review their own PR, so Timothy's own PRs on those paths are not blocked, while agent PRs are. No bypass list is needed.
 
