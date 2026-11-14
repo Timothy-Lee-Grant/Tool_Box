@@ -18,9 +18,11 @@ on:
   issues:
     types: [opened, labeled, assigned]
 
-# One run per issue/PR at a time; a second @claude waits for the first instead of colliding with it.
+# Single-flight (epic #84): one Claude run in the whole repo at a time, so parallel runs can't
+# conflict on shared docs or pick the same ADR number. GitHub keeps one running and ONE pending run;
+# a third trigger cancels the pending one, so wait for a run to finish before starting another.
 concurrency:
-  group: claude-${{ github.event.issue.number || github.event.pull_request.number }}
+  group: claude-single-flight
   cancel-in-progress: false
 
 jobs:
@@ -29,7 +31,13 @@ jobs:
     # can start a run (the action also rejects users without write access, but this check means a
     # stranger's "@claude" never even starts a runner). Edited comments are deliberately ignored —
     # to re-ask, post a new comment.
+    # Kill switches (epic #84): the label `claude:paused` on an issue/PR pauses that thread; the repo
+    # variable CLAUDE_PAUSED=true (Settings -> Secrets and variables -> Actions -> Variables) pauses everything.
     if: |
+      vars.CLAUDE_PAUSED != 'true' &&
+      !contains(github.event.issue.labels.*.name, 'claude:paused') &&
+      !contains(github.event.pull_request.labels.*.name, 'claude:paused') &&
+      (
       (github.event_name == 'issue_comment' && github.event.comment.author_association == 'OWNER' &&
         contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review_comment' && github.event.comment.author_association == 'OWNER' &&
@@ -41,6 +49,7 @@ jobs:
       (github.event_name == 'issues' && github.event.issue.author_association == 'OWNER' &&
         github.event.action != 'labeled' &&
         (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -72,4 +81,4 @@ jobs:
             actions: read
           claude_args: |
             --max-turns 60
-            --allowedTools "Read,Write,Edit,Glob,Grep,Task,Bash(dotnet restore:*),Bash(dotnet build:*),Bash(dotnet test:*),Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git add:*),Bash(git commit:*),Bash(git checkout:*),Bash(git switch:*),Bash(git fetch:*),Bash(git merge:*),Bash(git branch:*),Bash(git mv:*),Bash(git rm:*),Bash(git push:*),Bash(git show:*),Bash(git ls-tree:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git tag --list:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh issue create:*),Bash(gh label list:*),Bash(gh release view:*),Bash(gh release list:*),Bash(gh issue comment:*),Bash(gh issue edit:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr create:*),Bash(gh pr list:*),Bash(gh run list:*),Bash(gh run view:*)"
+            --allowedTools "Read,Write,Edit,Glob,Grep,Task,Bash(dotnet restore:*),Bash(dotnet build:*),Bash(dotnet test:*),Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git add:*),Bash(git commit:*),Bash(git checkout:*),Bash(git switch:*),Bash(git fetch:*),Bash(git merge:*),Bash(git branch:*),Bash(git mv:*),Bash(git rm:*),Bash(git push:*),Bash(git show:*),Bash(git ls-tree:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git tag --list:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh issue create:*),Bash(gh label list:*),Bash(gh release view:*),Bash(gh release list:*),Bash(gh issue comment:*),Bash(gh issue edit:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr create:*),Bash(gh pr list:*),Bash(gh run list:*),Bash(gh run view:*),Bash(gh pr merge --auto:*),Bash(gh pr comment:*),Bash(gh pr edit:*)"
