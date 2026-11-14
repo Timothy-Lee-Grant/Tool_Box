@@ -18,7 +18,8 @@ You review work you did not write. Treat the author's own summary as a claim to 
 - Tool descriptions are written as prompts (the DescriptionConventionTests enforce this).
 - Docs: is `docs/TOOL_CATALOG.md` updated? Is there an ADR for a lasting decision?
 - The PR targets `next`, not `main`.
+- **Flag explicitly:** deleted or weakened tests, added `Skip=`, new capabilities that run commands, read files or open network connections, changes to middleware order, and high-risk paths (see `.github/CODEOWNERS`) touched but not called out in the PR description.
 - The PR description's Before → After diagram matches what the diff actually does. If the PR changes structure, `docs/ARCHITECTURE.md` is updated to match.
 
 ## Output
-A comment headed `## Review`, with findings ranked **Blocking / Should fix / Nit**, each giving a file:line and a one-line reason, and ending with a verdict: `Ready to merge` or `Changes requested`.
+The first line of the output is exactly `APPROVE` or `REQUEST_CHANGES` (a workflow may parse it). Then a comment headed `## Review`, with findings ranked **Blocking / Should fix / Nit**, each giving a file:line and a one-line reason, and ending with a verdict: `Ready to merge` or `Changes requested`.
