@@ -63,6 +63,8 @@ flowchart TD
   Host --> Embedded["ToolBox.Embedded"] --> Core
 ```
 
+`ToolBox.Core/Instance` holds the single-instance lock (`InstanceLock`), the discovery file (`HostInfoFile`, `host.json`) and `HostProbe`; the Host's `BackgroundMode` ties them to startup (ADR-024).
+
 Rule (ADR-003): **Core knows no toolset.** Only the Host references toolset projects. Each toolset exposes one `CatalogEntry` and one `Add<Name>Toolset()` method (ADR-005, refined by ADR-015).
 
 ## 3. Startup flow: how the toolset roster is decided
@@ -162,6 +164,19 @@ flowchart LR
 
 Startup flow in HTTP mode: `AdminTokenStore.EnsureExists()` creates the token file (before any listener opens) → preflight probes both the MCP and admin URLs (exit 3 if either is taken) → Kestrel binds both URLs (admin appended last) → `AdminListener` records the real admin port at `ApplicationStarted`.
 
+Background mode (`--mode background`, #38, ADR-024) adds to that flow: `Program.cs` acquires `instance.lock` before building the app (held by another process: print pid and URLs from `host.json`, exit 4) → normal HTTP startup → at `ApplicationStarted` write `host.json` with the real URLs → on stop, the reconciler stops every toolset, `ApplicationStopped` deletes `host.json`, and the lock is released last. `POST /api/v1/shutdown` triggers that same stop.
+
+```mermaid
+flowchart LR
+  P[Program.cs --mode background] -->|acquire| L[(instance.lock)]
+  L -->|held| E4[print pid + URLs, exit 4]
+  P --> A[ToolBoxHttpApp: MCP + Admin + reconciler]
+  A -->|ApplicationStarted| HJ[(host.json)]
+  C[GUI / CLI] -->|read, verify /health| HJ
+  C -->|POST /api/v1/shutdown| A
+  A -->|StopApplication| R[reconciler stops toolsets] --> D[delete host.json, release lock]
+```
+
 Per request, in order:
 
 1. `PlaneSeparationMiddleware` decides by the socket's `LocalPort`, never the `Host` header: `/api/v1` is 404 on the MCP port; everything except `/api/v1` is 404 on the admin port.
@@ -171,6 +186,7 @@ Per request, in order:
 
 | Route | Purpose |
 |---|---|
+| `POST /api/v1/shutdown` | 202, then a graceful stop of the whole host (toolsets stopped through their persist hooks) |
 | `GET /api/v1/health` | `{version, uptime}` |
 | `GET /api/v1/status` | `status`, `version`, `uptime`, `components`, `desiredState {status, path, reason}`, and a `toolsets` map |
 | `GET /api/v1/toolsets`, `GET /api/v1/toolsets/{id}` | Per toolset: `desired`, `effective`, `actual` (`off`, `starting`, `on`, `stopping`, `failed`), `reason`, `pinnedBy`, `settings` (the last three omitted when null) |
@@ -216,7 +232,8 @@ Rows 3–7 are ordinary layered .NET configuration and apply to all three servic
 |---|---|
 | 0 | Clean shutdown |
 | 2 | Unknown transport |
-| 3 | A required port (MCP) is already in use |
+| 3 | A required port (MCP or Admin) is already in use |
+| 4 | Background mode: another instance holds the lock (#38) |
 
 ## 5. Branches and releases
 

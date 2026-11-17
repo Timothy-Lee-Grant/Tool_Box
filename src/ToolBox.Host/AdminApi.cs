@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Hosting;
 using ToolBox.Core;
 using ToolBox.Core.Admin;
 using ToolBox.Core.Health;
@@ -129,6 +130,19 @@ internal static class AdminApi
         {
             tokens.Rotate();
             return Results.NoContent();
+        });
+
+        // Graceful stop (issue #38): the only portable way to stop a hidden Windows process cleanly. 202 now, then
+        // StopApplication() shortly after so the response is not cut off; the normal shutdown path stops every
+        // toolset through its lifecycle (the persist hook) before the process exits. Also what the GUI's "Quit" calls.
+        group.MapPost("/shutdown", (IHostApplicationLifetime lifetime) =>
+        {
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(200));
+                lifetime.StopApplication();
+            });
+            return Results.Json(new { shutdown = "requested" }, statusCode: StatusCodes.Status202Accepted);
         });
 
         return group;
