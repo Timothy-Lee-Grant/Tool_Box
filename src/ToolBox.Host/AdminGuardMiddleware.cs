@@ -22,6 +22,9 @@ internal sealed class AdminGuardMiddleware(RequestDelegate next, AdminListener a
 {
     private const string BearerPrefix = "Bearer ";
 
+    // Admin: loopback names only, and the Host must carry the real admin port (no Docker publish here).
+    private static readonly HostOriginPolicy Policy = new(strictPort: true);
+
     public Task InvokeAsync(HttpContext context)
     {
         int localPort = context.Connection.LocalPort;
@@ -31,12 +34,12 @@ internal sealed class AdminGuardMiddleware(RequestDelegate next, AdminListener a
         HttpRequest request = context.Request;
 
         // 1a. Host: loopback name AND the real admin port. Missing/other => 421 Misdirected Request.
-        if (!IsLoopbackName(request.Host.Host) || request.Host.Port != localPort)
+        if (!Policy.IsAllowedHost(request.Host.Host, request.Host.Port, localPort))
             return Reject(context, StatusCodes.Status421MisdirectedRequest);
 
         // 1b. Origin: absent is fine (curl, the GUI); present must be this very loopback origin.
         if (request.Headers.TryGetValue(HeaderNames.Origin, out var origin) && origin.Count > 0
-            && !IsAllowedOrigin(origin.ToString(), localPort))
+            && !HostOriginPolicy.IsExactLoopbackOrigin(origin.ToString(), localPort))
             return Reject(context, StatusCodes.Status403Forbidden);
 
         // 2. Bearer token.
@@ -64,17 +67,6 @@ internal sealed class AdminGuardMiddleware(RequestDelegate next, AdminListener a
         context.Response.StatusCode = status;
         return Task.CompletedTask; // no body: nothing about the guard's internals leaks
     }
-
-    private static bool IsLoopbackName(string host) =>
-        host.Equals("127.0.0.1", StringComparison.Ordinal)
-        || host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
-        || host is "[::1]" or "::1";
-
-    private static bool IsAllowedOrigin(string origin, int adminPort) =>
-        Uri.TryCreate(origin, UriKind.Absolute, out Uri? uri)
-        && uri.Scheme == Uri.UriSchemeHttp
-        && IsLoopbackName(uri.Host.Equals("::1", StringComparison.Ordinal) ? "[::1]" : uri.Host)
-        && uri.Port == adminPort;
 
     private static bool HasBody(HttpRequest request) =>
         request.ContentLength > 0 || request.Headers.ContainsKey(HeaderNames.TransferEncoding);

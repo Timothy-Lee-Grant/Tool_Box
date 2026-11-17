@@ -23,10 +23,12 @@ services:
   toolbox:
     image: ghcr.io/timothy-lee-grant/tool_box:1.0.1   # pin a version tag, never :latest — see "Image strategy" below
     environment:
-      # Host-header allowlist (DNS-rebinding defense). "toolbox" is the name
+      # Host-header allowlist (DNS-rebinding defense, ADR-021). "toolbox" is the name
       # this service is addressed by on the compose network — it MUST be listed
-      # or every request will be rejected with 400.
-      AllowedHosts: "localhost;127.0.0.1;toolbox"
+      # or every request from other containers is rejected with 421. Loopback names
+      # are always allowed. The older bare `AllowedHosts: "localhost;127.0.0.1;toolbox"`
+      # still works as a fallback (a forged Host then gets 400 from ASP.NET, not 421).
+      TOOLBOX_Security__Mcp__AllowedHosts__0: "toolbox"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
@@ -126,7 +128,7 @@ Plus one line in `scripts/acceptance_check.sh`: curl `http://toolbox:8080/health
 
 | Symptom | Likely cause |
 |---|---|
-| Every request 400 | `toolbox` missing from `AllowedHosts` |
+| Every request 421 (or 400 with the legacy key) | `toolbox` missing from `Security:Mcp:AllowedHosts` (or `AllowedHosts`) |
 | `Connection refused` from Python | Service not on same compose network, or hitting `localhost` instead of `toolbox` |
 | Healthcheck never passes | curl missing (wrong base image edit) or app listening on localhost instead of `0.0.0.0` |
 | Tools list empty | Wrong URL path — the endpoint is `/mcp`, not `/` |

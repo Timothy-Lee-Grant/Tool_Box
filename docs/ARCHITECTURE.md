@@ -23,6 +23,7 @@ flowchart LR
     CORE["ToolBox.Core<br/>catalog types · descriptors · server info · logging"]
     REC["ToolsetReconcilerService → ToolsetReconciler<br/>starts toolsets, opens the ToolsetGate"]
     GATE["ToolsetGate + MCP filters<br/>hide closed tools, 'toolset is off'"]
+    NOTIF["IToolListChangedNotifier<br/>stdio: sends list_changed · HTTP: no-op"]
     subgraph Enabled["Toolsets (all registered; started and visible only if enabled)"]
       B["Basics<br/>ping · server_info · current_time"]
       V["Voxel<br/>12 shape tools + VoxelWorld"]
@@ -39,6 +40,7 @@ flowchart LR
   COMP --> CAT --> Enabled
   COMP --> CORE
   COMP --> REC --> GATE
+  REC -- "gate snapshot changed" --> NOTIF -- "list_changed (stdio only)" --> T
   MCP --> GATE --> B & V & E
   REC -- "Start / Stop" --> VW
   V --> VW -- "world updates" --> Browser
@@ -48,6 +50,7 @@ Reading the picture:
 - **Agents** connect over one of two **transports** (ADR-007). The transport is picked at startup by `--transport`, then the `TOOLBOX_TRANSPORT` env var, then `appsettings.json`; the default is stdio.
 - **`AddToolBoxServer()`** is the composition root: the single place that decides what the server *is*. Both transports call it.
 - **`ToolBoxCatalog`** is the only place toolsets are named. Every toolset is registered, but only **enabled** ones are started and visible: the reconciler starts them and opens the gate, and the gate hides a disabled toolset's tools and its background services never run (ADR-018, partly superseding ADR-015).
+- **Tool-list change notification.** After each reconcile pass, `ToolsetReconcilerService` compares `ToolsetGate.Snapshot()` before and after and, only if the open set differs, calls `IToolListChangedNotifier` once (never at startup or shutdown). `RunStdioAsync` replaces the default no-op with `StdioToolListChangedNotifier`, which sends `notifications/tools/list_changed` on the single long-lived session. Stateless HTTP has no channel that outlives a request, so it keeps the no-op and does not advertise `tools.listChanged`; HTTP clients poll `tools/list`. Push over HTTP waits for the SDK 2.0 evaluation (#77). See ADR-022.
 - **Voxel** brings its own background work (ADR-010), now a start/stop lifecycle rather than a container-started service, which streams world changes to a browser viewer. The agent never talks to that channel.
 
 ## 2. Projects and dependencies
@@ -59,6 +62,8 @@ flowchart TD
   Host --> Voxel["ToolBox.Voxel"] --> Core
   Host --> Embedded["ToolBox.Embedded"] --> Core
 ```
+
+`ToolBox.Core/Instance` holds the single-instance lock (`InstanceLock`), the discovery file (`HostInfoFile`, `host.json`) and `HostProbe`; the Host's `BackgroundMode` ties them to startup (ADR-024).
 
 Rule (ADR-003): **Core knows no toolset.** Only the Host references toolset projects. Each toolset exposes one `CatalogEntry` and one `Add<Name>Toolset()` method (ADR-005, refined by ADR-015).
 
@@ -151,7 +156,7 @@ The HTTP host opens a **second loopback endpoint** on the same `WebApplication`.
 
 ```mermaid
 flowchart LR
-  A[Agent] -->|MCP| M["Kestrel 127.0.0.1:8080<br/>/mcp, /health<br/>/api/v1/* gives 404"]
+  A[Agent] -->|MCP| M["Kestrel 127.0.0.1:8080<br/>1 PlaneSeparation<br/>2 McpGuard: Host 421 / Origin 403<br/>/mcp, /health<br/>/api/v1/* gives 404"]
   G[GUI / curl] --> AD["Kestrel 127.0.0.1:8095<br/>1 PlaneSeparation: LocalPort<br/>2 Host 421 / Origin 403<br/>3 Bearer 401<br/>/api/v1/health, /token/rotate"]
   TS[("admin-token 0600")] -.AdminTokenStore, re-read on mtime change.-> AD
   TS -.same-user read.-> G
@@ -159,14 +164,29 @@ flowchart LR
 
 Startup flow in HTTP mode: `AdminTokenStore.EnsureExists()` creates the token file (before any listener opens) → preflight probes both the MCP and admin URLs (exit 3 if either is taken) → Kestrel binds both URLs (admin appended last) → `AdminListener` records the real admin port at `ApplicationStarted`.
 
+Background mode (`--mode background`, #38, ADR-024) adds to that flow: `Program.cs` acquires `instance.lock` before building the app (held by another process: print pid and URLs from `host.json`, exit 4) → normal HTTP startup → at `ApplicationStarted` write `host.json` with the real URLs → on stop, the reconciler stops every toolset, `ApplicationStopped` deletes `host.json`, and the lock is released last. `POST /api/v1/shutdown` triggers that same stop.
+
+```mermaid
+flowchart LR
+  P[Program.cs --mode background] -->|acquire| L[(instance.lock)]
+  L -->|held| E4[print pid + URLs, exit 4]
+  P --> A[ToolBoxHttpApp: MCP + Admin + reconciler]
+  A -->|ApplicationStarted| HJ[(host.json)]
+  C[GUI / CLI] -->|read, verify /health| HJ
+  C -->|POST /api/v1/shutdown| A
+  A -->|StopApplication| R[reconciler stops toolsets] --> D[delete host.json, release lock]
+```
+
 Per request, in order:
 
 1. `PlaneSeparationMiddleware` decides by the socket's `LocalPort`, never the `Host` header: `/api/v1` is 404 on the MCP port; everything except `/api/v1` is 404 on the admin port.
 2. `AdminGuardMiddleware` (admin socket only, before routing): `Host` must be `127.0.0.1`, `localhost` or `[::1]` with the admin port, else 421; a present `Origin` must be a loopback origin on the admin port, else 403 (no `Origin` passes). No CORS headers are ever sent. Then `Authorization: Bearer <token>` is required, else 401 with `WWW-Authenticate: Bearer` and an empty body. A token in the query string is not accepted. A `PUT`/`POST` with a body needs `Content-Type: application/json`, else 415.
-3. Routing: `MapAdminApi()` returns only the `/api/v1` group.
+3. `McpGuardMiddleware` (MCP socket only, ADR-021): `Host` must be a loopback name or listed in `Security:Mcp:AllowedHosts`, compared by hostname only (a published Docker port differs from the listener's), else 421; a present `Origin` must be a loopback origin on any port or listed in `Security:Mcp:AllowedOrigins`, else 403; no `Origin` passes. It covers `/mcp` and `/health`, sends an empty body and no CORS headers. Both guards share `HostOriginPolicy`. If `Security:Mcp:AllowedHosts` is unset, the legacy `AllowedHosts` key is used (ASP.NET's own host filtering then answers 400 first for forged hosts). `McpGuardOptions.LogStartup` warns when MCP binds a non-loopback address with only the defaults.
+4. Routing: `MapAdminApi()` returns only the `/api/v1` group.
 
 | Route | Purpose |
 |---|---|
+| `POST /api/v1/shutdown` | 202, then a graceful stop of the whole host (toolsets stopped through their persist hooks) |
 | `GET /api/v1/health` | `{version, uptime}` |
 | `GET /api/v1/status` | `status`, `version`, `uptime`, `components`, `desiredState {status, path, reason}`, and a `toolsets` map |
 | `GET /api/v1/toolsets`, `GET /api/v1/toolsets/{id}` | Per toolset: `desired`, `effective`, `actual` (`off`, `starting`, `on`, `stopping`, `failed`), `reason`, `pinnedBy`, `settings` (the last three omitted when null) |
@@ -212,7 +232,8 @@ Rows 3–7 are ordinary layered .NET configuration and apply to all three servic
 |---|---|
 | 0 | Clean shutdown |
 | 2 | Unknown transport |
-| 3 | A required port (MCP) is already in use |
+| 3 | A required port (MCP or Admin) is already in use |
+| 4 | Background mode: another instance holds the lock (#38) |
 
 ## 5. Branches and releases
 

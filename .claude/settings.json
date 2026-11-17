@@ -15,12 +15,19 @@
       "Bash(gh pr diff:*)",
       "Bash(gh pr list:*)",
       "Bash(gh run list:*)",
-      "Bash(gh run view:*)"
+      "Bash(gh run view:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr merge --auto:*)",
+      "Bash(gh pr comment:*)",
+      "Bash(gh pr edit:*)"
     ],
     "deny": [
       "Bash(git push origin main:*)",
       "Bash(git push --force:*)",
-      "Bash(git push -f:*)"
+      "Bash(git push -f:*)",
+      "Bash(git push origin next:*)",
+      "Bash(gh api:*)",
+      "Bash(gh pr merge:*--admin*)"
     ]
   }
 }

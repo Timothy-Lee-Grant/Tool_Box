@@ -8,6 +8,7 @@ using ToolBox.Core;
 using ToolBox.Core.Admin;
 using Microsoft.Extensions.Logging;
 using ToolBox.Core.Health;
+using ToolBox.Core.Instance;
 using ToolBox.Core.Logging;
 using ToolBox.Core.Ports;
 using ToolBox.Core.Toolsets;
@@ -75,6 +76,13 @@ internal static class ToolBoxHttpApp
             builder.WebHost.UseUrls(ports.Mcp.Url + ";" + ports.Admin.Url);
         }
 
+        // MCP Host/Origin guard settings (issue #66), enforced by McpGuardMiddleware.
+        // The admin URL is always last, so everything before it is an MCP listener.
+        string[] boundUrls = (builder.Configuration[WebHostDefaults.ServerUrlsKey] ?? string.Empty)
+            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        builder.Services.AddSingleton(McpGuardOptions.Resolve(
+            builder.Configuration, string.Join(';', boundUrls.SkipLast(1))));
+
         // Control plane (issue #36 / #35): a second loopback listener in the SAME app, so the admin
         // code reaches the store, board and reconciler directly. Only HTTP mode has it; stdio hosts are
         // spawned per agent session and would fight over the port. Admin:Enabled is the future opt-in.
@@ -104,6 +112,8 @@ internal static class ToolBoxHttpApp
                 PortTable.PortKey(PortTable.Mcp), PortTable.AddressKey(PortTable.Mcp));
         }
 
+        app.Services.GetRequiredService<McpGuardOptions>().LogStartup(app.Logger);
+
         // The token file must exist before the admin listener opens (created here, never replaced).
         app.Services.GetRequiredService<AdminTokenStore>().EnsureExists();
 
@@ -116,11 +126,41 @@ internal static class ToolBoxHttpApp
                 adminListener.Resolve(uri.Port);
         });
 
+        // Background mode (issue #38): publish host.json once the REAL ports are known (port 0 works), and
+        // remove it after the reconciler has stopped the toolsets. The lock itself is held by Program.cs.
+        if (BackgroundMode.IsBackground(builder.Configuration))
+        {
+            string infoDir = BackgroundMode.InstanceDir(builder.Configuration);
+            app.Lifetime.ApplicationStarted.Register(() =>
+            {
+                try
+                {
+                    var urls = app.Urls.ToList();
+                    string? mcp = urls.Count > 1 ? urls[0] : null;
+                    string? admin = urls.LastOrDefault();
+                    if (mcp is null || admin is null) return;
+                    HostInfoFile.Write(infoDir, new HostInfo(
+                        Environment.ProcessId, DateTimeOffset.UtcNow,
+                        app.Services.GetRequiredService<ServerInfoProvider>().Get().Version,
+                        BackgroundMode.Reachable(mcp).TrimEnd('/') + "/mcp", BackgroundMode.Reachable(admin).TrimEnd('/')));
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    app.Logger.LogWarning(ex, "Could not write {File} in {Dir}; clients will not find this host.", HostInfoFile.FileName, infoDir);
+                }
+            });
+            app.Lifetime.ApplicationStopped.Register(() => HostInfoFile.Delete(infoDir));
+        }
+
         // First in the pipeline: the socket the request arrived on decides which plane it may touch.
         app.UseMiddleware<PlaneSeparationMiddleware>();
 
         // Second: on the admin socket, Host/Origin checks, then the bearer token, before any routing.
         app.UseMiddleware<AdminGuardMiddleware>();
+
+        // Same idea for the MCP socket (issue #66): Host 421 / Origin 403 against DNS rebinding. Both guards are
+        // by-socket, so their relative order does not matter; each ignores the other's port.
+        app.UseMiddleware<McpGuardMiddleware>();
 
         // Control-plane routes, only the guarded /api/v1 group (never MCP tools: decision 7).
         app.MapAdminApi();

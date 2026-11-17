@@ -325,7 +325,15 @@ public sealed class AdminToolsetTests : IDisposable
 
             var toolsets = FileJson()["toolsets"]!;
             foreach (string id in ids)
-                Assert.Equal(value, (bool)toolsets[id]!["enabled"]!);
+            {
+                var entry = toolsets[id];
+                Assert.True(entry is not null,
+                    $"Lost update in round {round}: the PUT for '{id}' returned 202 but '{id}' is missing from the saved file. " +
+                    "Two requests loaded the same file and the later save overwrote the other's change, so the admin write lock is not serializing writes.");
+                Assert.True(value == (bool)entry!["enabled"]!,
+                    $"Lost update in round {round}: expected '{id}' enabled={value} in the saved file but found enabled={!value}. " +
+                    "Another request's save overwrote this change, so the admin write lock is not serializing writes.");
+            }
         }
     }
 

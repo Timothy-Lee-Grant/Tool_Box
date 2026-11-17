@@ -25,7 +25,7 @@ system this issue changes, using the names in docs/ARCHITECTURE.md. Then 2–4 s
 explaining the difference in plain language.
 
 ### Steps
-1. **<Title>** — what and why.
+1. **<Title>** — 🟢 low / 🔴 high risk (high = touches a path in `.github/CODEOWNERS`) · 🤖 agent work / ✋ by-hand work for Timothy (give the exact settings or YAML). What and why.
    - 1.1 concrete sub-step (file paths)
    - Verify: how we'll know this step worked (test name, command, CI job)
 2. ...
@@ -37,6 +37,7 @@ Ideas this work introduces that he may not have met before (candidates for a lec
 ```
 
 ## Rules
+- One step = one PR = one run. Size steps accordingly; a high-risk step stops at `needs-timothy`.
 - Each step should be small enough to review on its own and should leave the build green.
 - Never touch `main`. Never propose changes to `ToolBox.Core` for something that belongs in one toolset (ADR-003).
 - If the issue doesn't give you enough to plan, return questions instead of a plan.

@@ -14,7 +14,7 @@ namespace ToolBox.Host.Tests;
 public sealed class ReconcileTriggerTests : IDisposable
 {
     /// <summary>A clock whose timers fire only when the test calls <see cref="Advance"/>.</summary>
-    private sealed class ManualClock : TimeProvider
+    internal sealed class ManualClock : TimeProvider
     {
         private sealed class FakeTimer(ManualClock owner, TimerCallback callback, object? state, TimeSpan due) : ITimer
         {
@@ -91,7 +91,7 @@ public sealed class ReconcileTriggerTests : IDisposable
         var roster = new DesiredRosterSource(store, config, known, registry, resolution);
         var clock = new ManualClock();
         var service = new ToolsetReconcilerService(
-            reconciler, roster, resolution, NullLogger<ToolsetReconcilerService>.Instance, clock,
+            reconciler, gate, new NullToolListChangedNotifier(), roster, resolution, NullLogger<ToolsetReconcilerService>.Instance, clock,
             TimeSpan.FromMilliseconds(300), watchFile: false);
         return new Rig(service, voxel, gate, registry, clock, roster, board);
     }
