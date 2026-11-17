@@ -55,7 +55,7 @@ public sealed class InstanceTests : IDisposable
     public async Task Lock_is_released_when_the_holder_process_is_killed()
     {
         // A child process holds the lock; killing it (no clean shutdown) must free it.
-        string script = $"exec 9<>'{Path.Combine(_dir, InstanceLock.FileName)}'; flock -n 9 && sleep 60";
+        string script = $"exec 9<>'{Path.Combine(_dir, InstanceLock.FileName)}'; flock -n 9 && exec sleep 60";
         if (!OperatingSystem.IsLinux() || !File.Exists("/usr/bin/flock")) return; // .NET's own lock is tested above
         // .NET FileShare.None on Unix is an advisory flock, so a child using flock(1) contends with it.
         using Process child = Process.Start(new ProcessStartInfo("bash", ["-c", script]) { UseShellExecute = false })!;
@@ -74,8 +74,12 @@ public sealed class InstanceTests : IDisposable
 
             child.Kill(entireProcessTree: true);
             await child.WaitForExitAsync();
-            using InstanceLock? after = InstanceLock.TryAcquire(_dir);
-            Assert.NotNull(after);
+            // The OS frees the lock when the last fd holder dies; poll briefly rather than check once.
+            DateTime releaseDeadline = DateTime.UtcNow.AddSeconds(10);
+            InstanceLock? after;
+            while ((after = InstanceLock.TryAcquire(_dir)) is null && DateTime.UtcNow < releaseDeadline)
+                await Task.Delay(50);
+            using (after) Assert.NotNull(after);
         }
         finally { if (!child.HasExited) child.Kill(true); }
     }
