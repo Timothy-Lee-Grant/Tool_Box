@@ -53,6 +53,38 @@ public class PortProbeTests
     }
 
     [Fact]
+    public void Check_WildcardConflict_ReportsRequestedAddress()
+    {
+        using var holder = new TcpListener(IPAddress.Loopback, 0);
+        holder.Start();
+        int port = ((IPEndPoint)holder.LocalEndpoint).Port;
+
+        var ex = Assert.Throws<PortConflictException>(
+            () => PortProbe.Check(IPAddress.Any, port, "viewer", "Ports:Viewer:Port"));
+
+        Assert.Contains("0.0.0.0", ex.Message);
+    }
+
+    [Fact]
+    public void Check_FreePort_PassesForWildcardProbe()
+    {
+        int port = PortProbe.FindFreePort(IPAddress.Loopback);
+
+        PortProbe.Check(IPAddress.Any, port, "viewer", "Ports:Viewer:Port");
+    }
+
+    [Fact]
+    public void Check_FreePort_PassesForIPv6WildcardProbe()
+    {
+        if (!Socket.OSSupportsIPv6)
+            return; // nothing to probe; the skip path is exercised by not throwing elsewhere
+
+        int port = PortProbe.FindFreePort(IPAddress.Loopback);
+
+        PortProbe.Check(IPAddress.IPv6Any, port, "viewer", "Ports:Viewer:Port");
+    }
+
+    [Fact]
     public void Check_ReleasesThePortAfterProbing()
     {
         int port = PortProbe.FindFreePort(IPAddress.Loopback);

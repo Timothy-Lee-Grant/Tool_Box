@@ -9,7 +9,8 @@ namespace ToolBox.Core.Ports;
 /// probe and real bind — the real bind's failure is translated by
 /// <see cref="PortConflictException.IsAddressInUse"/> as the backstop.
 /// The probe MUST use the real bind address: a port free on 127.0.0.1 can still be
-/// taken on 0.0.0.0 (and vice versa).
+/// taken on 0.0.0.0 (and vice versa). For wildcard addresses the probe additionally binds
+/// 127.0.0.1 and ::1, because macOS allows a wildcard bind next to a specific-address bind.
 /// </summary>
 public static class PortProbe
 {
@@ -19,14 +20,47 @@ public static class PortProbe
         if (port == 0)
             return;
 
+        if (TryBind(address, port, out var ex))
+        {
+            throw new PortConflictException(service, port, address, configKey, ex);
+        }
+
+        // macOS/BSD let a wildcard bind succeed beside a specific-address bind, so a wildcard
+        // probe also checks the loopback addresses it could shadow. The first conflict is enough.
+        // Errors keep reporting the REQUESTED address so the message matches the user's config.
+        if (address.Equals(IPAddress.Any) || address.Equals(IPAddress.IPv6Any))
+        {
+            foreach (var loopback in new[] { IPAddress.Loopback, IPAddress.IPv6Loopback })
+            {
+                if (TryBind(loopback, port, out ex))
+                    throw new PortConflictException(service, port, address, configKey, ex);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Binds and releases one throwaway listener. Returns true (with the exception) only when the
+    /// address is in use; an address/family the machine lacks (e.g. no ::1) counts as "free" so it is skipped.
+    /// Any other socket error propagates.
+    /// </summary>
+    private static bool TryBind(IPAddress address, int port, out SocketException? inUse)
+    {
+        inUse = null;
         var listener = new TcpListener(address, port);
         try
         {
             listener.Start();
+            return false;
         }
         catch (SocketException ex) when (ex.SocketErrorCode == SocketError.AddressAlreadyInUse)
         {
-            throw new PortConflictException(service, port, address, configKey, ex);
+            inUse = ex;
+            return true;
+        }
+        catch (SocketException ex) when (ex.SocketErrorCode is SocketError.AddressNotAvailable
+                                                             or SocketError.AddressFamilyNotSupported)
+        {
+            return false;
         }
         finally
         {
