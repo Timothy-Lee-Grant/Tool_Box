@@ -271,6 +271,28 @@ docker compose down
 | 2 | Unknown transport (valid: `stdio`, `http`) |
 | 3 | A required port is already in use. The message names the service, port and the setting to change. A taken viewer port does not exit; it shows up in `/health`. |
 
+## Run in the background
+
+`--mode background` runs the host as a long-lived local service for the GUI and CLI: HTTP MCP on `127.0.0.1:8080`, the admin API on `127.0.0.1:8095`, and the reconciler. It is a run profile on top of HTTP (ADR-024), so it cannot be combined with `--transport stdio`.
+
+Start it manually (start-with-OS is not built yet). Linux and macOS:
+
+```bash
+nohup dotnet run --project src/ToolBox.Host -- --mode background > toolbox.log 2>&1 &
+```
+
+Windows (PowerShell):
+
+```powershell
+Start-Process -WindowStyle Hidden dotnet -ArgumentList 'run','--project','src/ToolBox.Host','--','--mode','background'
+```
+
+- **One instance per user.** A second launch prints `Tool_Box is already running (pid N) - MCP ..., admin ...` and exits with code **4**. The lock is `instance.lock` in the per-user `ToolBox` app-data folder (override with `Instance:Dir`); the OS frees it even if the host is killed.
+- **Finding it.** `host.json` in the same folder holds the pid and the real MCP and admin URLs (never the token). Treat it as a hint and check `GET <mcp>/health`.
+- **Stopping it.** Ctrl+C or SIGTERM stop it cleanly. A hidden process (Windows) can be stopped with the admin token from the `admin-token` file in the same folder: `curl -X POST -H "Authorization: Bearer $(cat ~/.local/share/ToolBox/admin-token)" http://127.0.0.1:8095/api/v1/shutdown` (Linux path shown; macOS uses `~/Library/Application Support/ToolBox`, Windows `%LOCALAPPDATA%\ToolBox`). Either way every toolset is stopped through its persist hook before the process exits.
+- **Exit codes.** 2 bad transport or mode combination, 3 a required port is in use (for example `--Ports:Mcp:Port=8081` to move MCP off 8080), 4 already running.
+- **Caveats.** HTTP is pull-only: agents see roster changes on their next `tools/list` (ADR-022). A stdio host, the background host and Docker each run the Voxel viewer on port 8090, so run only one of them for Voxel at a time.
+
 ## Containerized
 
 ```bash

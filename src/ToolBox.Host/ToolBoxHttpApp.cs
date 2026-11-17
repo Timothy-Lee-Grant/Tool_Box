@@ -8,6 +8,7 @@ using ToolBox.Core;
 using ToolBox.Core.Admin;
 using Microsoft.Extensions.Logging;
 using ToolBox.Core.Health;
+using ToolBox.Core.Instance;
 using ToolBox.Core.Logging;
 using ToolBox.Core.Ports;
 using ToolBox.Core.Toolsets;
@@ -124,6 +125,32 @@ internal static class ToolBoxHttpApp
             if (last is not null && Uri.TryCreate(last, UriKind.Absolute, out Uri? uri))
                 adminListener.Resolve(uri.Port);
         });
+
+        // Background mode (issue #38): publish host.json once the REAL ports are known (port 0 works), and
+        // remove it after the reconciler has stopped the toolsets. The lock itself is held by Program.cs.
+        if (BackgroundMode.IsBackground(builder.Configuration))
+        {
+            string infoDir = BackgroundMode.InstanceDir(builder.Configuration);
+            app.Lifetime.ApplicationStarted.Register(() =>
+            {
+                try
+                {
+                    var urls = app.Urls.ToList();
+                    string? mcp = urls.Count > 1 ? urls[0] : null;
+                    string? admin = urls.LastOrDefault();
+                    if (mcp is null || admin is null) return;
+                    HostInfoFile.Write(infoDir, new HostInfo(
+                        Environment.ProcessId, DateTimeOffset.UtcNow,
+                        app.Services.GetRequiredService<ServerInfoProvider>().Get().Version,
+                        BackgroundMode.Reachable(mcp).TrimEnd('/') + "/mcp", BackgroundMode.Reachable(admin).TrimEnd('/')));
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    app.Logger.LogWarning(ex, "Could not write {File} in {Dir}; clients will not find this host.", HostInfoFile.FileName, infoDir);
+                }
+            });
+            app.Lifetime.ApplicationStopped.Register(() => HostInfoFile.Delete(infoDir));
+        }
 
         // First in the pipeline: the socket the request arrived on decides which plane it may touch.
         app.UseMiddleware<PlaneSeparationMiddleware>();

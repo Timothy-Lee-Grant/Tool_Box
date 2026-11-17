@@ -32,3 +32,7 @@
 /tests/ToolBox.Host.Tests/PlaneSeparationTests.cs @Timothy-Lee-Grant
 /tests/ToolBox.Host.Tests/PortSettingsTests.cs @Timothy-Lee-Grant
 /tests/ToolBox.Core.Tests/PortProbeTests.cs @Timothy-Lee-Grant
+/src/ToolBox.Core/Instance/ @Timothy-Lee-Grant
+/tests/ToolBox.Core.Tests/InstanceTests.cs @Timothy-Lee-Grant
+/tests/ToolBox.Host.Tests/BackgroundMode* @Timothy-Lee-Grant
+/src/ToolBox.Host/BackgroundMode.cs @Timothy-Lee-Grant
