@@ -22,6 +22,9 @@ internal sealed class ToolsetReconcilerService : IHostedService, IToolsetReconci
 {
     public static readonly TimeSpan DefaultDebounce = TimeSpan.FromMilliseconds(300);
 
+    /// <summary>How long shutdown waits for toolsets to stop. Must stay inside the host's ShutdownTimeout.</summary>
+    internal static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(10);
+
     private readonly ToolsetReconciler _reconciler;
     private readonly ToolsetGate _gate;
     private readonly IToolListChangedNotifier _notifier;
@@ -94,7 +97,7 @@ internal sealed class ToolsetReconcilerService : IHostedService, IToolsetReconci
 
         // Deliberately NOT the host's token: by now it may already be cancelled, which would make
         // the reconciler throw before stopping anything. Own timeout instead.
-        using var stopCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var stopCts = new CancellationTokenSource(StopTimeout);
         try
         {
             var result = await _reconciler.ReconcileAsync([], stopCts.Token);
