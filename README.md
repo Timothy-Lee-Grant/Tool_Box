@@ -291,7 +291,7 @@ Start-Process -WindowStyle Hidden dotnet -ArgumentList 'run','--project','src/To
 - **Finding it.** `host.json` in the same folder holds the pid and the real MCP and admin URLs (never the token). Treat it as a hint and check `GET <mcp>/health`.
 - **Stopping it.** Ctrl+C or SIGTERM stop it cleanly. A hidden process (Windows) can be stopped with the admin token from the `admin-token` file in the same folder: `curl -X POST -H "Authorization: Bearer $(cat ~/.local/share/ToolBox/admin-token)" http://127.0.0.1:8095/api/v1/shutdown` (Linux path shown; macOS uses `~/Library/Application Support/ToolBox`, Windows `%LOCALAPPDATA%\ToolBox`). Either way every toolset is stopped through its persist hook before the process exits.
 - **Exit codes.** 2 bad transport or mode combination, 3 a required port is in use (for example `--Ports:Mcp:Port=8081` to move MCP off 8080), 4 already running.
-- **Caveats.** HTTP is pull-only: agents see roster changes on their next `tools/list` (ADR-022). A stdio host, the background host and Docker each run the Voxel viewer on port 8090, so run only one of them for Voxel at a time.
+- **Caveats.** HTTP is pull-only: agents see roster changes on their next `tools/list` (ADR-022). A stdio host, the background host and Docker each try to run the Voxel viewer on port 8090. If a second host starts while another already holds 8090, it keeps running with all its MCP tools but has no viewer: its warning log says so, and `/health` reports `degraded` with `components.viewer` = `unavailable: port 8090 in use`. The viewer is not retried automatically. Once the port is free, toggle the Voxel toolset off and on (admin API, or the desired-state file) and the bind is attempted again; restarting the host does the same.
 
 ## Containerized
 
