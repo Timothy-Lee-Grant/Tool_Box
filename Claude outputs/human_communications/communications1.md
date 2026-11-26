@@ -107,3 +107,13 @@ ADR-007 notes the same binary could run on, say, a Raspberry Pi with a different
 - **Shared state cuts both ways.** Two agents in the same voxel world can step on each other. This is a known, accepted limitation (ADR-009).
 
 **Short version:** stdio = "my agent's private toolbox." HTTP = "a toolbox service that other things connect to": first LLM_Monitor's containers, and next your whole set of local agents plus the GUI, all sharing one running host.
+
+
+
+
+
+1. I have heard a lot about this idea of seams, and I know that there was a full lecture document which was generated, but honestly I have not had enough time to be able to dedicate to going and reading that lecture document in full. So instead, could you give me a high-level understanding of what seams are and show me examples in this project of what they are and how they are used and why they are important? 
+
+2. I'm also seeing a lot of things with this idea of planes, like data plane and control plane and all of that, so I'm trying to understand what it's meaning by those planes and also about all of the different doors which are located in this project.
+
+3. Can you explain this thing I see of MCP SKD JSON RPC?
