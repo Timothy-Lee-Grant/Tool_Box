@@ -538,3 +538,107 @@ flowchart LR
 Every place that builds Tool_Box (your Mac, VS Code, the agent's runner, CI, Docker) has **its own SDK**. Before `global.json`, your Mac was the odd one out on an 11 preview. Now everything uses a .NET 10 SDK. (CI and Docker already did; making CI read `global.json` directly is the small hand edit planned with #104.)
 
 **The one-line mental model:** *`global.json` picks the toolkit, `TargetFramework` picks the runtime the program needs, the NuGet cache holds the parts, and VS Code borrows the same toolkit to understand your code.*
+
+
+---
+
+# Answers — Round 4
+
+## 1. Moving Docker onto the T7
+
+> *Your question, summarised:* My Mac has little storage. How do I move Docker and everything Docker-related onto my T7 external SSD?
+
+### First, understand where Docker's space actually goes
+
+On a Mac, containers need a Linux kernel, so Docker Desktop runs a small **Linux virtual machine**. **Everything Docker stores lives inside one big file: that VM's virtual disk** (`Docker.raw`). That includes images (like `tool_box-toolbox` and the .NET SDK image it's built from), containers, volumes and the build cache. It's typically under:
+
+```
+~/Library/Containers/com.docker.docker/Data/vms/0/data/Docker.raw
+```
+
+So "moving Docker" really means **moving that one disk file**. The Docker Desktop app itself (in `/Applications`) is small by comparison and stays where it is.
+
+The file is *sparse*: Finder may show a huge size (its maximum), but it only uses the space actually filled. To see the real numbers:
+
+```
+docker system df
+du -h ~/Library/Containers/com.docker.docker/Data/vms/0/data/Docker.raw
+```
+
+(If the `du` path doesn't exist, your Docker version keeps it elsewhere. Step 4 below shows the current location in Settings.)
+
+### Step 1: reclaim space before moving anything
+
+You may not need to move at all. Multi-architecture builds and repeated `docker compose up --build` runs leave a lot behind:
+
+```
+docker system df
+docker builder prune
+docker image prune -a
+```
+
+- `docker builder prune` removes the **build cache** (often the biggest item).
+- `docker image prune -a` removes images **no container is using**. They're re-downloaded or rebuilt when needed.
+- `docker system df` again shows what you got back.
+
+You can also lower the maximum disk size: **Docker Desktop → Settings → Resources → Advanced → Disk usage limit**.
+
+### Step 2: check how the T7 is formatted
+
+This matters. Docker's disk image relies on macOS file-system features (sparse files), so the target drive should be **APFS** (or Mac OS Extended). Samsung T7 drives ship as **exFAT**, which is made for sharing between Mac and Windows and lacks those features.
+
+```
+diskutil info /Volumes/T7 | grep "File System Personality"
+```
+
+- **APFS:** go to step 3.
+- **ExFAT:** you'd need to reformat the T7 to APFS in **Disk Utility**, which **erases everything on it**. Copy off anything you want to keep first. (Your `nuget-packages` folder doesn't need saving; it re-downloads automatically.) Only do this if you don't need the T7 for Windows machines too.
+
+### Step 3: stop everything
+
+```
+cd ~/Desktop/projects/Tool_Box
+docker compose down
+```
+
+### Step 4: move the disk image (the supported way)
+
+1. Open **Docker Desktop → Settings (gear icon) → Resources → Advanced**.
+2. Find **Disk image location**. It shows the current path.
+3. Click **Browse**, create and choose a folder such as `/Volumes/T7/docker`.
+4. Click **Apply & restart**. Docker Desktop copies the disk image to the T7 and restarts. This can take a few minutes, depending on its size.
+
+Don't move `~/Library/Containers/com.docker.docker` by hand or with symlinks; the Settings option is the safe route.
+
+### Step 5: verify
+
+```
+docker images
+ls -lh /Volumes/T7/docker
+df -h /
+```
+
+- `docker images` should list the same images as before. Nothing was lost.
+- The T7 folder now holds the disk image.
+- `df -h /` shows more free space on your Mac's internal disk. (If the old file wasn't removed, check the old path from the start of this answer.)
+
+Then run the usual check to be sure Docker still works end to end:
+
+```
+docker compose up -d --build
+sleep 8
+curl -s http://localhost:8081/health
+docker compose down
+```
+
+### The new rules once Docker lives on the T7
+
+- **Plug in the T7 before starting Docker Desktop.** If the drive is missing, Docker can't find its disk and won't start properly.
+- **Quit Docker Desktop before ejecting the T7.** Pulling the drive while the VM is running can corrupt its disk image.
+- If the T7 isn't always connected, turn off **Settings → General → Start Docker Desktop when you sign in**, so it doesn't start without its drive.
+
+### The trade-off to be aware of
+
+Combined with `NUGET_PACKAGES="/Volumes/T7/nuget-packages"` in your `.zshrc`, **the T7 becomes required for all Tool_Box development**: .NET restores, VS Code's C# extension *and* Docker all depend on it. That's fine if the drive basically lives plugged into your Mac. If you carry it around, expect the "random" failures you saw in VS Code to show up in Docker too whenever it's missing.
+
+**To undo it**, use the same **Disk image location** setting: choose a folder on the internal disk and **Apply & restart**.
