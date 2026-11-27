@@ -413,3 +413,128 @@ Because `McpClientTool` is a `Microsoft.Extensions.AI` `AIFunction`, you can han
 
 
 1. When we do this line: `return builder.WithTools<VoxelTools>();`, why is it the case that we invoke the WithTools method with `<VoxelTools>`? Why not pass it in as a parameter? 
+
+---
+
+# Answers — Round 3
+
+## 1. Why `WithTools<VoxelTools>()` and not a parameter?
+
+Because you're not handing over an **object**, you're handing over a **type**: a description of a class.
+
+When that line runs (at startup, during registration), no `VoxelTools` object exists yet, and none *should* exist. Look at its constructor:
+
+```csharp
+public VoxelTools(VoxelWorld world)
+```
+
+A `VoxelTools` needs a `VoxelWorld`, and only the DI container knows where the one shared `VoxelWorld` is. So instead of building one yourself, you tell the SDK *"this class contains tools"*, and the SDK does two things with that type:
+
+1. **At startup, it reads the class.** It uses **reflection** to find every method marked `[McpServerTool]`, and reads their names, descriptions and parameter types. That's what becomes the `tools/list` answer (each tool's JSON schema).
+2. **When a tool is called, it builds an instance.** On `tools/call`, it asks DI to create a `VoxelTools` (injecting the `VoxelWorld`), calls the method, and lets the instance go.
+
+**Analogy:** passing an object is handing someone a finished cake. Passing a type is handing them the **recipe**, so the kitchen (DI) can bake one with the right ingredients whenever it's needed.
+
+**Why a generic `<VoxelTools>` rather than `WithTools(typeof(VoxelTools))`?** The SDK does also have overloads that take `Type` objects or scan a whole assembly, but the generic form is the usual .NET style, for good reasons:
+
+- **The compiler checks it.** `<VoxelTols>` won't compile. A `Type` parameter would accept any type at all, and you'd only find the mistake at runtime.
+- **It survives trimming.** When an app is published "trimmed" (unused code removed, for smaller files or native AOT), reflection-only code can vanish. A generic type parameter can carry an annotation telling the trimmer "keep this class's public methods", so the tools aren't removed.
+- **It reads as configuration.** You've seen the same pattern all over .NET: `services.AddSingleton<VoxelWorld>()`, `AddHostedService<T>()`. In every case, the `<T>` means "here's *what kind* of thing; you (the container) create it when needed".
+
+---
+
+## 2. How all the ".NET" pieces fit together
+
+> *Your question, summarised:* I have three .NETs installed, something about .NET on an external drive, a `global.json` that "controls something", a target framework, an SDK, and VS Code all interacting. How do these pieces actually work together?
+
+### "Your three .NETs" are really five different kinds of thing
+
+| # | Thing | What it is | Where it lives on your Mac |
+|---|---|---|---|
+| 1 | The **`dotnet` command** | A small dispatcher (called the *muxer*). It does almost nothing itself; it picks which SDK or runtime should do the work. | `/usr/local/share/dotnet/dotnet` (one copy) |
+| 2 | **SDKs** | The **build toolkit**: the C# compiler, MSBuild, NuGet restore, `dotnet test`, templates. Used when you *build*. | `/usr/local/share/dotnet/sdk/` (your 9.0.303, 10.0.302, 11.0.100-preview, side by side) |
+| 3 | **Runtimes** | What **executes** a compiled program: the CLR plus the base libraries (and ASP.NET's libraries). Used when you *run*. Each SDK installs a matching one. | `/usr/local/share/dotnet/shared/` |
+| 4 | **Target framework** | `net10.0` in `Directory.Build.props`. Not something installed: it's the project's **promise** of which API set it uses and which runtime major version it needs. | In the repo |
+| 5 | **NuGet packages** | Downloaded libraries (the MCP SDK, xUnit…), cached so every project can share them. | The *global packages folder* (default `~/.nuget/packages`, possibly your external drive, see below) |
+
+So: you don't have "three .NETs". You have **one dispatcher, three SDKs, their runtimes, and a package cache**, and your project declares one target.
+
+### What happens when you type `dotnet build` in the repo
+
+```mermaid
+flowchart TD
+    M["dotnet (muxer)"] --> G{"global.json in this folder<br/>or any parent?"}
+    G -->|"no"| N["use the NEWEST SDK<br/>(previews included): 11.0.100-preview"]
+    G -->|"yes: 10.0.100 + latestFeature"| P["use the newest 10.0.x SDK: 10.0.302"]
+    N --> S["SDK reads the .csproj<br/>TargetFramework = net10.0"]
+    P --> S
+    S --> R["restore: fetch packages into the NuGet cache,<br/>write obj/project.assets.json"]
+    R --> C["compile → bin/ToolBox.Host.dll<br/>+ runtimeconfig.json: 'needs .NET 10 runtime'"]
+    C --> RUN["dotnet ToolBox.Host.dll → muxer picks a 10.x RUNTIME"]
+```
+
+Two independent choices are happening:
+
+- **`global.json` chooses the SDK**: *which toolkit builds the code.*
+- **`TargetFramework` chooses the runtime**: *what the built program needs to run.*
+
+They're separate. A newer SDK can build an older target: SDK 11 built your `net10.0` project fine, which is why everything still worked. It just printed `NETSDK1057` ("you're using a preview") every time, and used a newer compiler and analyzers than CI. That's the drift `global.json` removes.
+
+### Your own output proves it
+
+```
+dotnet --version          → 11.0.100-preview…   (no global.json on that branch: newest wins)
+gh pr checkout 117
+dotnet --version          → 10.0.302             (global.json found: newest 10.0.x)
+```
+
+The muxer looks for `global.json` **in the current folder and its parents**. So inside the repo you now get 10.0.302, and in any other folder on your Mac you still get the 11 preview. Both are correct: the pin belongs to the project, not to your machine.
+
+### Where VS Code fits
+
+VS Code doesn't compile your code itself. The C# extension runs a **language server** (Roslyn, the same compiler engine), which:
+
+1. finds an SDK using the **same muxer rules** from your workspace folder, so it now also picks 10.0.302;
+2. loads the projects and reads **`obj/project.assets.json`** (written by restore) to learn which libraries exist, including the most basic one, `System.Runtime`.
+
+Your fake errors happened because step 2 failed: clearing caches removed restore output, so the language server couldn't load the project and fell back to reading files on their own, with **no references at all**. That's why even `System` and `object` "didn't exist". `dotnet restore` recreated the files, and **Reload Window** made the language server load them again.
+
+### The external drive
+
+I can't see your shell settings from here, so this is the likely explanation, plus how to confirm it.
+
+**Your SDKs aren't on the external drive.** `dotnet --list-sdks` shows them in `/usr/local/share/dotnet`, on the internal disk. The thing people usually move to an external drive is the **NuGet packages cache** (item 5), because it grows to several gigabytes. You do that by setting the `NUGET_PACKAGES` environment variable (usually in `~/.zshrc`) or `globalPackagesFolder` in your NuGet config. Earlier in this project, a restore failed with a permission error under `/Volumes/T7`, which fits exactly that.
+
+Check with:
+
+```
+echo $NUGET_PACKAGES
+dotnet nuget locals global-packages --list
+grep -n "T7\|NUGET\|DOTNET" ~/.zshrc ~/.zprofile ~/.zshenv
+```
+
+- If the cache **is** on `/Volumes/T7`: every restore needs the drive plugged in, or it fails (or the language server breaks the same way it just did). Clearing caches on that drive means restore re-downloads everything.
+- If nothing points at `T7`: your packages live in `~/.nuget/packages`, and the drive isn't involved in .NET at all any more.
+
+### Everything in one picture
+
+```mermaid
+flowchart LR
+    subgraph Mac["Your Mac"]
+        GJ["global.json (repo)"] --> MUX["dotnet muxer"]
+        MUX --> SDK10["SDK 10.0.302"]
+        VS["VS Code language server"] --> MUX
+        SDK10 --> NU[("NuGet cache<br/>~/.nuget or /Volumes/T7?")]
+        SDK10 --> OUT["bin/ (net10.0)"] --> RT[".NET 10 runtime"]
+    end
+    subgraph CI["GitHub CI runner"]
+        SD["setup-dotnet 10.0.x<br/>(+ global.json now)"] --> CISDK["newest 10.0 SDK"]
+    end
+    subgraph Docker["Docker build"]
+        IMG["sdk:10.0 image<br/>(its own SDK inside)"] --> RTIMG["aspnet:10.0 runtime image"]
+    end
+```
+
+Every place that builds Tool_Box (your Mac, VS Code, the agent's runner, CI, Docker) has **its own SDK**. Before `global.json`, your Mac was the odd one out on an 11 preview. Now everything uses a .NET 10 SDK. (CI and Docker already did; making CI read `global.json` directly is the small hand edit planned with #104.)
+
+**The one-line mental model:** *`global.json` picks the toolkit, `TargetFramework` picks the runtime the program needs, the NuGet cache holds the parts, and VS Code borrows the same toolkit to understand your code.*
