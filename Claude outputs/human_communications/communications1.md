@@ -133,3 +133,276 @@ ADR-007 notes the same binary could run on, say, a Raspberry Pi with a different
 9. And now that I'm thinking about this more, I also am wondering what the advantage of having the Docker is and how this will be used by agents. And so how is the user going to be actually utilizing this? I remember very vaguely when I was first starting this project that I wanted Docker, but I can't remember the reason why.
 
 10. Now that I am starting to investigate this more, I am remembering more and more about the initial ideas that I had when I was creating this project and how I wanted to integrate this into the LLM monitor project. I remember at that time I was trying to figure out how to actually integrate it in. And I also know that at that time I wasn't quite really familiar with a lot of processes in Docker and also within dependency injection for services. So I'm wondering if we can look over this and see how the toolbox project is able to be integrated into other .NET projects, or as a microservice.
+
+---
+
+# Answers — Round 2
+
+## 1. Seams, the short version
+
+A **seam** is a place where you can change what the program does **without editing the code at that place**. Every seam has an **enabling point**: the spot where you choose which behaviour plugs in (a config value, a DI registration, a constructor argument). The term comes from Michael Feathers' *Working Effectively with Legacy Code*.
+
+Picture a USB port. The laptop doesn't care whether you plug in a mouse or a drive. The port is the seam, and your hand choosing what to plug in is the enabling point.
+
+**Seams in Tool_Box:**
+
+| Seam | What can change without editing code | Enabling point |
+|---|---|---|
+| **Transport** | stdio or HTTP | `--transport` flag / `TOOLBOX_Transport` env var |
+| **Toolset catalog** | Which toolsets exist and are on | `ToolBoxCatalog.Create()` plus `TOOLBOX_TOOLSETS` / desired-state file |
+| **Clock** (`TimeProvider`) | Real time or a frozen fake time | DI registration; tests register a fake first, and `TryAdd` keeps it |
+| **`IToolListChangedNotifier`** | Push `list_changed` (stdio) or do nothing (HTTP) | `Program.cs` replaces the default for stdio |
+| **`IToolsetLifecycle`** | How each toolset starts and stops (Voxel starts its viewer, Basics does nothing) | Each toolset registers its own implementation |
+| **Ports / bind addresses** | 8080 or 8081, loopback or all interfaces | `TOOLBOX_Ports__Mcp__Port`, etc. |
+| **File paths** (`Desired:Path`, `Admin:TokenPath`) | Where the state files live | Config; tests point them at temp folders so they never touch your real home folder |
+| **MCP itself** | Which agent talks to you (Claude, Copilot, LangGraph) | The protocol is the contract; any client that speaks it works |
+
+**Why they matter:**
+1. **Testing.** You can swap the real clock, real files or a real port for controlled ones. Most of your test suite depends on this.
+2. **Evolving without rewriting.** HTTP was added through the transport seam with zero changes to Core or the toolsets. v2 is mostly moving enabling points: the roster went from hard-coded, to config, to a file, to a GUI.
+3. **Dependency direction.** The stable side (Core) defines the seam (`IToolsetLifecycle`), and the changing side (toolsets) plugs into it. That's dependency inversion.
+
+**Don't add one "just in case."** A seam costs indirection. Add it when there's a second real implementation, or a test that needs it. ADR-003 calls this "abstract from evidence, not imagination."
+
+---
+
+## 2. Planes and doors
+
+**"Plane" is borrowed from network routers.** A router has a **data plane** (the fast path that actually forwards packets) and a **control plane** (the slower part that decides *how* packets should be forwarded: routes, configuration). Doing the work vs. deciding how the work is done.
+
+**In Tool_Box:**
+- **Data plane** = agents doing work: `tools/list`, `tools/call`. High volume, comes from AI agents.
+- **Control plane** = changing how the server is set up: turning toolsets on/off, rotating the token, shutting down. Comes from you, curl, or the future GUI.
+
+**Why keep them apart?** Agents are only partly trusted: their input can be steered by whatever text they read (prompt injection). If an agent could reach the control plane, a malicious web page could tell it "enable the Embedded toolset and flash this firmware." So the control plane is a **different socket the agent's door can't reach** (v2 decision 7). It also needs a token.
+
+Think of a restaurant: the dining room (data plane) is where customers order, and the manager's office (control plane) is where the menu gets decided. Customers can't wander into the office, and the office door is locked (the token).
+
+**The doors in a running host:**
+
+| Door | Port (default) | Who uses it | What's behind it | Protection |
+|---|---|---|---|---|
+| **stdio** | none (stdin/stdout pipes) | The one agent that spawned the process | MCP | Only the parent process holds the pipes |
+| **MCP** | 8080 | Agents over HTTP | `/mcp`, `/health` | Loopback bind, Host/Origin guard (ADR-021), no login |
+| **Admin** | 8095 | You, curl, the GUI | `/api/v1/health`, `/status`, `/toolsets`, `PUT /toolsets/{id}/enabled`, `/reconcile`, `/token/rotate`, `/shutdown` | Always loopback, Host/Origin guard, **bearer token** |
+| **Viewer** | 8090 | Your browser | WebSocket `/voxel/`: a stream of world changes | Receive-only: it shows things, it can't run tools |
+
+MCP and Admin are **two listeners inside one ASP.NET app**. `PlaneSeparationMiddleware` runs first and checks which **local port** the connection actually arrived on. A request for `/api/v1` on 8080 gets a 404, and so does anything other than `/api/v1` on 8095. It checks the real socket port rather than the `Host` header, because the client writes the `Host` header and can lie in it.
+
+---
+
+## 3. "MCP SDK JSON-RPC"
+
+These are three separate layers, stacked:
+
+```
+Your C# tool method       ← you write this   (e.g. Ping(string message))
+MCP SDK                   ← the library      (ModelContextProtocol 1.4.1)
+MCP                       ← the protocol     (which messages exist and what they mean)
+JSON-RPC 2.0              ← the message format
+Transport                 ← the pipe         (stdin/stdout, or HTTP POST /mcp)
+```
+
+- **JSON-RPC 2.0** is a tiny standard for "call a function on another program using JSON." A request has `jsonrpc`, `id`, `method` and `params`. The reply has the same `id` and either `result` or `error`. A message with no `id` is a *notification*: no reply expected.
+- **MCP (Model Context Protocol)** defines *which* methods exist for AI tools: `initialize` (handshake), `tools/list` (what can you do?), `tools/call` (do it), `notifications/tools/list_changed`, and more.
+- **The SDK** is the official C# library that implements all of this so you don't have to. It reads your `[McpServerTool]` attributes, builds the tool list with JSON schemas, parses incoming JSON-RPC, calls your method, and serializes the result. It also provides both transports.
+
+A real exchange:
+
+```json
+→ {"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"ping","arguments":{"message":"hi"}}}
+← {"jsonrpc":"2.0","id":7,"result":{"content":[{"type":"text","text":"pong: hi"}]}}
+```
+
+Over stdio those lines go through stdin/stdout. That's why stdout is reserved for protocol and all logs go to stderr (ADR-004): one stray `Console.WriteLine` would corrupt the stream. Over HTTP the same JSON is the body of a `POST /mcp`.
+
+---
+
+## 4. Ports, binding, and your mental model
+
+You're closer than you think. A few corrections first, then the correct picture.
+
+**Corrections:**
+- ✅ **A network interface is an OS abstraction, and IP addresses are assigned to interfaces.** Correct. On Windows, a physical NIC's driver (an NDIS miniport) sits under an interface that has an index/LUID. One interface can have several IPs. Loopback (`127.0.0.1`) is a purely software interface with no hardware at all.
+- ✅ **The process handle table maps integer handles to kernel objects.** Correct, and that's exactly how your app holds its network resource.
+- ❌ **The app doesn't open a handle to the *interface*.** It opens a **socket**, and *that* is the kernel object in your handle table. On Windows, a `SOCKET` is a real handle to an object managed by the AFD driver (`\Device\Afd`), which talks to the TCP/IP stack (`tcpip.sys`). The interface is just how bytes physically leave and arrive.
+- ❌ **A port is not a field of the interface.** A port is a 16-bit number (0–65535) carried in every TCP/UDP packet header. It identifies **which socket** on the machine should receive the packet. The IP gets the packet to the machine; the port gets it to the right program on that machine.
+- ❌/✅ **"Is a port global or per-application?"** Your second guess was right: **ports are machine-wide** (per protocol, per local IP). The TCP/IP stack keeps one table of "(local IP, local port) → which socket." That's why two programs can't both listen on 8080, and why Tool_Box has exit code 3 for "port taken." One process can own many ports, though. A running Tool_Box owns 8080, 8095 and 8090.
+- (Side note: "one application = one process with one shared address space" is true, but it isn't really involved here. The handle table is the part that matters.)
+
+**What actually happens when Tool_Box starts its MCP door (Kestrel does this for you):**
+
+1. **`socket()`**: "Kernel, give me a TCP socket." You get a handle back in your handle table. It isn't attached to any address yet.
+2. **`bind(127.0.0.1, 8080)`**: **this is binding.** "Attach this socket to local IP 127.0.0.1, port 8080." The stack checks its table: if someone already holds that pair, it fails with "address in use" (`WSAEADDRINUSE` on Windows). That's what Tool_Box turns into exit 3.
+3. **`listen()`**: "Start queueing incoming connection requests on this socket."
+4. **`accept()`**: for each client that connects, the kernel creates a **new** socket (a new handle) just for that conversation. The listening socket keeps listening.
+
+A live connection is identified by four values: (client IP, client port, server IP, server port). That's how 50 clients can all talk to port 8080 at once: their client ports differ. The client's port is a random high "ephemeral" port the OS picks for it.
+
+**The IP you bind to decides who can reach you.** This is the single most useful networking fact in this project:
+
+| Bind address | Who can connect | Where Tool_Box uses it |
+|---|---|---|
+| `127.0.0.1` (loopback) | Only programs on this same machine | Desktop default for all doors (ADR-016) |
+| `0.0.0.0` (all interfaces) | Anything that can route to any of this machine's IPs | Inside Docker; needed because the published port arrives on the container's real interface, not its loopback |
+
+**Windows bonus: the viewer works differently.** The voxel viewer uses .NET's `HttpListener`, which on Windows doesn't open its own socket. It registers a *URL prefix* (`http://+:8090/voxel/`) with **HTTP.sys**, a kernel-mode driver that owns the port and hands matching requests to your process. That's why its config looks like a URL with `+` (the "strong wildcard"), and why ADR-012/016 talk about prefixes rather than addresses.
+
+**Try it yourself:** start Tool_Box in HTTP mode, then run
+- macOS: `lsof -nP -iTCP -sTCP:LISTEN | grep dotnet`
+- Windows: `netstat -ano | findstr LISTENING`, or in PowerShell `Get-NetTCPConnection -State Listen`
+
+You'll see 8080, 8095 and 8090 with your process's PID next to each. That's the stack's bind table made visible.
+
+---
+
+## 5. The admin token
+
+**What a token is:** a random secret string. Whoever presents it is allowed in. This kind is called a **bearer token** ("whoever *bears* it"), the same idea as a hotel key card: the door doesn't check who you are, only that the card is valid.
+
+**How it travels over HTTP:** in a request header.
+
+```
+POST /api/v1/token/rotate HTTP/1.1
+Host: 127.0.0.1:8095
+Authorization: Bearer 3kq9-ExampleOnly-xY7...
+```
+
+It goes only in that header: never in the URL (URLs end up in logs and browser history), never in a log line, never in an error message.
+
+**"Written by the host on first HTTP start," step by step** (`AdminTokenStore.EnsureExists()`, called in `ToolBoxHttpApp` *before* the admin listener opens):
+1. Does `…/ToolBox/admin-token` exist? If yes, keep it. **It is never replaced on startup**, so the token survives restarts and the GUI can keep using it.
+2. If not, generate 32 bytes from a cryptographic random generator and encode them as base64url text.
+3. Write them to a **temp file**, then **move it into place without overwriting**. If two hosts start at the same instant, one wins, and the other's move fails harmlessly; both then use the winner's token. Nobody ever reads a half-written file.
+4. Tighten permissions to `0600` (only your user can read it) on macOS/Linux. On Windows, the per-user `%LOCALAPPDATA%` folder's ACL already does this job.
+
+Only HTTP modes do this. stdio has no admin door, so it needs no token.
+
+**On every admin request:** the guard reads the header, hashes both the presented token and the file's token with SHA-256, and compares them in **constant time**. A normal string compare stops at the first wrong character, and an attacker could time that to guess the token one character at a time. The host caches the hash and re-reads the file only when its modification time or length changes.
+
+**Rotation** means replacing the token with a new random one, so the old one **stops working immediately**. You'd do it if you think the token leaked (pasted into a chat, committed by accident). Two ways:
+- `POST /api/v1/token/rotate` (authorized with the *current* token) → `204 No Content`. The new token is deliberately **not** returned in the response; anyone who needs it reads the file.
+- Or just replace the file by hand. The host notices the change, no restart needed.
+
+**Security model in one line:** anyone who can read files as *your* OS user is already trusted. The token keeps out everyone else: other users, web pages, and agents.
+
+---
+
+## 6. How the GUI/CLI finds the host via `host.json`
+
+**When a background host starts:**
+1. `Program.cs` takes `instance.lock`. If another process already holds it, this one prints where the running host is and exits with code 4.
+2. Kestrel binds the ports. With port `0` the OS picks one, which is why the file is written only *after* binding: only then are the real ports known.
+3. On `ApplicationStarted`, it writes `host.json` to `…/ToolBox/`:
+   ```json
+   { "pid": 41234, "startedAt": "…", "version": "1.1.0",
+     "mcpUrl": "http://127.0.0.1:8080/mcp", "adminUrl": "http://127.0.0.1:8095" }
+   ```
+
+**When the GUI (or a second launch) wants to connect:**
+1. Read `host.json` from the known per-user folder. **Missing** → no host running (the GUI could start one).
+2. **Verify, don't trust:** `GET <mcp host>/health`, with a 2-second timeout and no auth (`HostProbe`). The file is only a *hint*: if the host crashed, the file is still there but nothing answers.
+3. Healthy → read the `admin-token` file, then call `adminUrl/api/v1/...` with `Authorization: Bearer …`.
+4. Not healthy → treat the file as stale and the host as not running.
+
+**When the host stops** (Ctrl+C, or `POST /api/v1/shutdown`): the reconciler stops every toolset (Voxel saves its world), then `host.json` is deleted, then the lock is released last. The token is never put in `host.json`; the two files are kept separate on purpose (ADR-019/024).
+
+---
+
+## 7. The four files: is your model right?
+
+Mostly yes. Here are the corrections, then the "why."
+
+**They are not all created on every startup.** Each has its own writer and its own trigger:
+
+| File | Created when | By whom |
+|---|---|---|
+| `desired-state.json` | Only when **you change something** through the admin API (the future GUI) | `AdminWriteService`. The host only *reads* it at startup and when it changes, and never creates it. A missing file just means "use the defaults." |
+| `admin-token` | First start in **HTTP or background** mode | `AdminTokenStore.EnsureExists()` |
+| `host.json` | Each start in **background** mode only | Deleted again on clean exit |
+| `instance.lock` | **Background** mode only | The file may stay on disk; what matters is the open handle |
+
+**Location:** .NET's `LocalApplicationData` + `ToolBox`, which resolves per OS:
+- Windows: `C:\Users\Timothy\AppData\Local\ToolBox\`
+- macOS: `~/Library/Application Support/ToolBox/`
+- Linux: `~/.local/share/ToolBox/`
+
+Every path can be overridden in config. Tests and Docker use this.
+
+**Persistence or inter-process communication? Both, and it differs per file:**
+
+| File | Main job |
+|---|---|
+| `desired-state.json` | **Persistence**: your intent ("Voxel on, Embedded off") survives restarts |
+| `admin-token` | **Shared secret between processes** (host ↔ GUI, same user), and it persists so the GUI keeps working after restarts |
+| `host.json` | **Discovery** (IPC): "here's where I am" |
+| `instance.lock` | **Mutual exclusion** (coordination): "only one of me" |
+
+**One refinement to "files as IPC":** the files only *bootstrap* the communication: where is the host, and what's the secret. The actual conversation happens over **HTTP**. Files are good at "leave a note that survives until someone reads it"; sockets are good at "talk right now."
+
+**The lock is the interesting one, especially on Windows.** It isn't "the file exists → locked." The host opens the file with `FileShare.None`, which becomes `CreateFile` with share mode `0` on Windows: "nobody else may open this file while my handle is open." A second host's open fails, and that failure *is* the "already running" signal. When the process dies in any way, even `kill -9` or a crash, the kernel closes all of its handles, so the lock is released automatically. A plain "pid file" would go stale after a crash, which is why ADR-024 rejected it.
+
+---
+
+## 8. "One host per user"
+
+Two separate things are getting mixed here.
+
+**What "host" means:** a running **ToolBox.Host process**: `dotnet ToolBox.Host.dll`, with `Program.cs` as its entry point.
+
+**What actually happens today with stdio:** yes, exactly as you described. Two terminals running Claude CLI, each configured with the stdio command, give you **two separate processes with two PIDs**, both running the same DLL. The DLL is just code on disk; each process loads its own copy into its own address space. They share nothing: two voxel worlds, two toolset states, and both trying to grab viewer port 8090. stdio hosts don't take the lock, so nothing stops this.
+
+**What "one host per user" means:** that's the **background-mode goal**, the *opposite* of one-per-agent. **One** long-lived process for your whole user account, and every agent connects to it over HTTP instead of spawning its own:
+
+```
+stdio today:        Claude #1 → Host (pid 101)      Claude #2 → Host (pid 102)
+background goal:    Claude #1 ─┐
+                    Claude #2 ─┼─ HTTP → ONE Host (pid 300) ← GUI (admin)
+                    Copilot  ──┘
+```
+
+`instance.lock` is what *enforces* "one" (a second background launch exits with code 4). For your Claude sessions to share it, you'd register Tool_Box with Claude Code as an **HTTP server** (`http://127.0.0.1:8080/mcp`) instead of as a command to launch.
+
+---
+
+## 9. Why Docker, and how it gets used
+
+**Why you added it** (plan 002), in priority order:
+1. **LLM_Monitor runs entirely in Docker Compose.** To be a service there, Tool_Box had to be a container on the same network (`toolbox:8080`). That was the main reason.
+2. **Reproducible and portable.** The image contains the .NET runtime and everything else, so nobody needs the .NET SDK. Your CI publishes it to GHCR for Intel and ARM, and consumers pin a version tag (`:1.0.1`).
+3. **Isolation.** Tools execute inside a container as a non-root user. If a tool misbehaved, it would be stuck inside the container's filesystem and network.
+4. **Learning value.** Multi-stage builds, layer caching, healthchecks, port publishing and non-root images are everyday Microsoft/cloud skills.
+
+**How it's used:**
+- **Standalone dev:** `docker compose up` → MCP at `http://localhost:8081/mcp` (host port 8081 forwards to container port 8080), viewer at `localhost:8090`. Point MCP Inspector, or an agent configured for HTTP, at it.
+- **Inside another compose (LLM_Monitor):** other containers call `http://toolbox:8080/mcp` by service name, and the MCP port is deliberately **not** published to your machine at all.
+
+**What Docker is *not* for:** the desktop experience. The GUI and your local agents will use **background mode** directly on your machine. The Embedded toolset (USB hardware) also fits poorly in a container. So: **Docker = Tool_Box as a service for other systems; background mode = Tool_Box for you.**
+
+---
+
+## 10. Integrating Tool_Box into other .NET projects
+
+There are two shapes. The first is the one you have, and it's the right default.
+
+**A. As a microservice (talk to it over MCP).** The consumer doesn't reference any Tool_Box code. It knows a **URL** and speaks MCP. In a .NET consumer, using the same SDK's client side (these exact calls appear in your `SdkListChangedSpikeTests`):
+
+```csharp
+using ModelContextProtocol.Client;
+
+var client = await McpClient.CreateAsync(new HttpClientTransport(new HttpClientTransportOptions
+{
+    Endpoint = new Uri(builder.Configuration["ToolBox:Url"]!)   // e.g. http://toolbox:8080/mcp
+}));
+
+var tools = await client.ListToolsAsync();          // each McpClientTool is also an AIFunction
+var result = await client.CallToolAsync("ping", new Dictionary<string, object?> { ["message"] = "hi" });
+```
+
+Because `McpClientTool` is a `Microsoft.Extensions.AI` `AIFunction`, you can hand `tools` straight to an `IChatClient` and the model will call them. That's the .NET equivalent of what `langchain-mcp-adapters` does on the Python side.
+
+**The key DI insight, since you mentioned feeling shaky there:** a DI container lives **inside one process**. You can't "inject" a service that lives in another container. Across a process boundary, DI is replaced by a **network contract**: the URL in config plays the role a registration plays in-process. Inside the consumer you can still put the client into *its* DI, e.g. register it as a singleton behind your own `IToolBoxClient` interface. That's a seam, which also lets tests swap in a fake.
+
+**B. As a library (in-process).** The toolsets are ordinary class libraries with a doorway (`services.AddMcpServer().AddVoxelToolset()`), so in principle another .NET app hosting its own MCP server could reference `ToolBox.Voxel` and get its tools. Today that would be awkward: the projects aren't published as NuGet packages, and the toolsets now expect Tool_Box's host to start their lifecycles through the reconciler and to gate them. Doable later, but not designed for yet.
+
+**Recommendation:** stay with **A**. It works from any language (Python LangGraph already uses it), each side deploys and versions independently, and tool execution stays isolated. That's why MCP over HTTP is the boundary, and why adding a toolset gives every consumer new abilities with zero changes on their side.
