@@ -36,3 +36,4 @@
 /tests/ToolBox.Core.Tests/InstanceTests.cs @Timothy-Lee-Grant
 /tests/ToolBox.Host.Tests/BackgroundMode* @Timothy-Lee-Grant
 /src/ToolBox.Host/BackgroundMode.cs @Timothy-Lee-Grant
+/tests/ToolBox.E2E.Tests/ @Timothy-Lee-Grant

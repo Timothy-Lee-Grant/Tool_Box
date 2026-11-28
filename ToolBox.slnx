@@ -14,5 +14,6 @@
     <Project Path="tests/ToolBox.Voxel.Tests/ToolBox.Voxel.Tests.csproj" />
     <Project Path="tests/ToolBox.Embedded.Tests/ToolBox.Embedded.Tests.csproj" />
     <Project Path="tests/ToolBox.Host.Tests/ToolBox.Host.Tests.csproj" />
+    <Project Path="tests/ToolBox.E2E.Tests/ToolBox.E2E.Tests.csproj" />
   </Folder>
 </Solution>

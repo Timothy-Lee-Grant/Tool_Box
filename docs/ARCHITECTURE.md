@@ -65,6 +65,8 @@ flowchart TD
 
 `ToolBox.Core/Instance` holds the single-instance lock (`InstanceLock`), the discovery file (`HostInfoFile`, `host.json`) and `HostProbe`; the Host's `BackgroundMode` ties them to startup (ADR-024).
 
+`tests/ToolBox.E2E.Tests` is a black-box test project (#113): it builds the Host but does not reference its assembly, then launches `ToolBox.Host.dll --mode background` as a child process (temp instance dir, all ports `0`, a scrubbed `TOOLBOX_*` environment) and drives it only through `host.json`, the token file, HTTP, a real MCP client and the exit code. Its tests carry `[Trait("Category", "E2E")]` and run only with `TOOLBOX_E2E=1`, so a plain `dotnet test` lists them as skipped. Run them with `TOOLBOX_E2E=1 dotnet test tests/ToolBox.E2E.Tests --configuration Release`.
+
 Rule (ADR-003): **Core knows no toolset.** Only the Host references toolset projects. Each toolset exposes one `CatalogEntry` and one `Add<Name>Toolset()` method (ADR-005, refined by ADR-015).
 
 ## 3. Startup flow: how the toolset roster is decided
