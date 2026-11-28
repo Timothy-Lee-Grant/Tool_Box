@@ -224,3 +224,14 @@ Append-only. Each record: context → decision → consequences. Reversing a dec
 
 **Consequences:** S2 (GUI/tray) finds the host through `host.json` and quits it through `/shutdown`; S6 (OS service installers) can wrap the same mode. The MCP port can now be up all day with no MCP authentication, so loopback-only by default (ADR-021's guard and non-loopback warning) matters more. HTTP stays pull-only for `tools/list` changes (ADR-022). Exit codes are now an interface: 2 bad transport or mode combination, 3 port in use, 4 already running.
 
+
+## ADR-025 — E2E tests: a black-box project, gated by trait plus environment variable, with a random-port compose override (2026-11-28)
+
+**Context:** The checks Timothy did by hand for #38, #66 and v1.2.0 (container healthy, forged Host 421, foreign Origin 403, a real MCP client, background-host discovery, toggle and shutdown) needed to be repeatable, and S2's GUI needs its host contract pinned (#113).
+**Decision:**
+- **One separate project, `tests/ToolBox.E2E.Tests`, black box.** It builds the Host (`ReferenceOutputAssembly="false"`) but references no Tool_Box type; it uses processes, files, HTTP, the MCP client SDK and exit codes only. Anything it can observe is the public contract. Rejected: a folder inside `ToolBox.Host.Tests` (mixes slow with fast, and can reach internals).
+- **Two gates.** Every test has `[Trait("Category","E2E")]` and uses `[E2EFact]`, which skips unless `TOOLBOX_E2E=1`. A plain `dotnet test` stays fast and needs no Docker; CI runs `--filter "Category!=E2E"` for the fast path and `--filter "Category=E2E"` with `TOOLBOX_E2E=1` for the E2E step. With the variable set and no Docker, the Docker test fails loudly rather than skipping.
+- **Docker test uses the shipped compose file plus an override.** `docker-compose.e2e.yml` resets `container_name` and publishes container ports 8080 and 8090 with no host port; the test runs under project name `toolbox-e2e` and reads the ports with `docker compose port`. It cannot collide with a dev stack on 8081/8090, and it still tests the image, environment and healthcheck that ship. `down -v` runs before and after.
+- **`/health` version must equal `<Version>` in `Directory.Build.props`** (compared as four-part versions, since the host reports the assembly version `1.2.0.0`).
+
+**Consequences:** `.github/workflows/ci.yml` needs a hand edit (filter plus an `e2e` job); until then the tests show as skipped in CI. The project path is in CODEOWNERS because it tests guards and the admin plane. Adding an E2E test means adding `[Trait]` plus `[E2EFact]`, nothing else.

@@ -67,6 +67,8 @@ flowchart TD
 
 `tests/ToolBox.E2E.Tests` is a black-box test project (#113): it builds the Host but does not reference its assembly, then launches `ToolBox.Host.dll --mode background` as a child process (temp instance dir, all ports `0`, a scrubbed `TOOLBOX_*` environment) and drives it only through `host.json`, the token file, HTTP, a real MCP client and the exit code. Its tests carry `[Trait("Category", "E2E")]` and run only with `TOOLBOX_E2E=1`, so a plain `dotnet test` lists them as skipped. Run them with `TOOLBOX_E2E=1 dotnet test tests/ToolBox.E2E.Tests --configuration Release`.
 
+It also holds the Docker smoke test (ADR-025): `ComposeStack` runs `docker compose -p toolbox-e2e` with the repo's `docker-compose.yml` plus `tests/ToolBox.E2E.Tests/docker-compose.e2e.yml` (container name reset, random published ports read with `docker compose port`), waits for the image's healthcheck, then checks `/health` (version equals `<Version>` in `Directory.Build.props`), a forged Host (421), a foreign Origin (403) and a real MCP `tools/list`, and always runs `down -v`. It needs Docker and `TOOLBOX_E2E=1`.
+
 Rule (ADR-003): **Core knows no toolset.** Only the Host references toolset projects. Each toolset exposes one `CatalogEntry` and one `Add<Name>Toolset()` method (ADR-005, refined by ADR-015).
 
 ## 3. Startup flow: how the toolset roster is decided
