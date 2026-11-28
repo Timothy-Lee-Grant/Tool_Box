@@ -32,7 +32,7 @@ Not a list of buzzwords — every line below is backed by something you can actu
 |---|---|
 | **System architecture under real constraint** | Host/Core/Toolset boundary held through a second toolset with genuinely different needs (stateful, write-classified, its own background service) — with **zero diffs** required in `Core/` (measured, not claimed — see [ADR-003](docs/DECISIONS.md), [ADR-010](docs/DECISIONS.md)). |
 | **Protocol & networking depth** | A single binary serving two MCP transports (stdio, streamable HTTP) selected at runtime, plus a hand-rolled `HttpListener`-based WebSocket server with a correct close handshake — a real bug in that handshake was found and fixed during development, not shipped (see [Lecture 004, §9 and §17](Documentation/Learning/004-State-Sockets-And-Shapes.md)). |
-| **Testing discipline** | 77 tests across four projects — pure-logic unit tests, tool-layer functional tests with zero MCP/server involved, and wire-level integration tests that boot the real HTTP app and call it with the real MCP client SDK. CI runs all of it, plus a container boot-and-healthcheck smoke test, on every push. |
+| **Testing discipline** | Tests across every test project — pure-logic unit tests, tool-layer functional tests with zero MCP/server involved, and wire-level integration tests that boot the real HTTP app and call it with the real MCP client SDK. CI runs all of it, plus a container boot-and-healthcheck smoke test, on every push. |
 | **Engineering judgment under review** | Every non-trivial decision is a dated, append-only [Architecture Decision Record](docs/DECISIONS.md) (12 so far) — including one that explicitly revises an earlier security assumption once circumstances changed, with the reasoning written down rather than silently overridden. |
 | **Security posture, stated not assumed** | The HTTP transport's threat model (isolation vs. authentication, what actually gates exposure) is documented and was re-examined, on the record, the moment a write-classified toolset made the original assumption stale ([ADR-008](docs/DECISIONS.md), [ADR-011](docs/DECISIONS.md)). |
 | **AI-assisted engineering, done deliberately** | This project is built through a staged process — written design goals → recorded discussion → a reviewed implementation plan → step-by-step permissioned execution — logged in full in [`Documentation/ImplementationPlans`](Documentation/ImplementationPlans/). It's a real, repeatable answer to "how do you use AI tools responsibly as an engineer," not an anecdote. |
@@ -61,7 +61,7 @@ Requires the [.NET 10 SDK](https://dotnet.microsoft.com/download) (current LTS).
 git clone git@github.com:Timothy-Lee-Grant/Tool_Box.git
 cd Tool_Box
 dotnet build            # zero warnings — Directory.Build.props makes any warning fatal
-dotnet test              # 77 tests, four projects
+dotnet test              # runs every test project under tests/
 ```
 
 If both commands finish clean, the environment is verified end to end — nothing below requires anything you haven't already proven works.
