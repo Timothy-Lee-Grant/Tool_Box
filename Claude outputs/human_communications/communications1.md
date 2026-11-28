@@ -741,4 +741,150 @@ ToolBox.H 53174 timothy  223u  IPv4 314637      0t0  TCP 127.0.0.1:8095 (LISTEN)
 
 So now I am trying to understand how those paths are actually agreed upon because it seems like software applications will have their persistent data or files that are stored at specific locations. And so now I'm trying to figure out if we are hard coding this or if the operating system just defaults to putting an application's data in a specific location. And then this also has ramifications and implications for how I interact with other software that other people create. And so when I'm running software which other people created, where do they put their data on my system? And from my understanding, I am running this application from the actual DLL which I compiled myself and is on my computer because I cloned my GitHub repository and am doing development. But I don't think that that is the way that a user is going to interact with my application. And so can you go into how the user is going to interact with my application, where they are going to be launching it, what that is going to mean for the different paths which are being invoked, and how my application is going to keep track of those?
 
-5. 
+---
+
+# Answers — Round 5
+
+## 1. Sockets: checking your model
+
+Most of it is right. There's **one important correction**, about `accept()`.
+
+**✅ Correct:**
+- `socket()` gives you a TCP endpoint with no IP or port yet.
+- `bind()` claims just **two** values: local IP + local port.
+- The "address in use" error happens at `bind()`, on that 2-value pair. A listening socket isn't a connection yet, so the 4-value rule doesn't apply. The OS refuses a second claim on the same (IP, port).
+- The browser gets an **ephemeral** local port for each connection it opens, so clients on your machine never collide.
+- A server has one listening socket per (IP, port) it binds: one for 80, one for 443.
+
+**❌ The correction: `accept()` does not give the new socket a new port.**
+The accepted socket **keeps the server's port**. Every connection to Tool_Box's MCP door has local port **8080**. What makes each connection unique is the **client's** side of the 4-tuple:
+
+```
+listening socket:   127.0.0.1:8080   ←→  *:*                (accepts only)
+connection A:       127.0.0.1:8080   ←→  127.0.0.1:51234    (browser tab / agent 1)
+connection B:       127.0.0.1:8080   ←→  127.0.0.1:51240    (agent 2)
+```
+
+All three share `127.0.0.1:8080`, and there's no conflict because no two of them have the same **4-tuple**. Only the *client* ever picks an ephemeral port. You can see it yourself while an agent is connected:
+
+```
+ss -tnp | grep 8080
+```
+
+Every line shows `127.0.0.1:8080` on the local side and a different high port on the peer side.
+
+**Small refinements to the rest:**
+- `bind()` only claims the address. `listen()` is what makes the socket *passive* ("I accept connections, I don't start them") and gives it a queue. The kernel does the TCP 3-way handshake **by itself** and puts finished connections in that queue. `accept()` just takes the next one off the queue as a new socket.
+- **DI scopes are per HTTP *request*, not per TCP connection.** One connection usually carries many requests (HTTP keep-alive). With HTTP/2, many requests travel over one connection *at the same time*. ASP.NET Core creates a DI scope for each request. The socket and the scope are two different layers.
+
+**Where this lives in Tool_Box:**
+
+| Code | What it does with sockets |
+|---|---|
+| **Kestrel** (via `builder.WebHost.UseUrls(...)` in `ToolBoxHttpApp`) | `socket` → `bind 127.0.0.1:8080` and `:8095` → `listen` → `accept` loop. You never see the calls, but this is what runs. |
+| **`PortProbe`** (`src/ToolBox.Core/Ports/PortProbe.cs`) | Creates a throwaway `TcpListener` and calls `Start()` (= bind + listen) then `Stop()`. That's how Tool_Box *asks* "is 8080 free?" before starting: if the bind fails, it reports the conflict by name and exits with code 3. |
+| **`PlaneSeparationMiddleware`** | Reads `HttpContext.Connection.LocalPort`, the **local half** of the accepted socket's 4-tuple. That's how it knows whether a request came in on 8080 or 8095. |
+| **`VoxelViewerBroadcastService`** | Uses `HttpListener` (on Linux this is .NET's managed listener) with the prefix `http://127.0.0.1:8090/voxel/`, then upgrades each accepted connection to a WebSocket. |
+
+---
+
+## 2. Why the viewer shows nothing at `http://127.0.0.1:8090/voxel/`
+
+Port 8090 isn't a web page. It's the **WebSocket** the viewer page connects *to*. When you type the URL into the address bar, the browser sends a normal `GET`, and the service answers: `if (context.Request.IsWebSocketRequest) … else 400 Bad Request` with an empty body. That's the blank page you see. Everything is actually working.
+
+**The page itself is `viewer/index.html`, served separately** (as the README says, "a plain static page — no Tool_Box code serves it"):
+
+```
+cd viewer
+python3 -m http.server 5500
+```
+
+Then open `http://localhost:5500`. The page runs `new WebSocket('ws://127.0.0.1:8090/voxel/')` and connects to your running host.
+
+**You'll still see an empty world** until something builds in it. Call a voxel tool through an agent connected to that same host, for example over HTTP at `http://127.0.0.1:8080/mcp`, or with MCP Inspector. A stdio agent starts its *own* host process, with its own world and no access to this viewer (see Round 2, Q8).
+
+---
+
+## 3. Process permissions, and `%LOCALAPPDATA%`
+
+**Yes, your understanding is right.** A process runs **as a user**, and a child process inherits its parent's identity. You run `claude` in your terminal, so Claude runs as `timothy`, and so does any shell command it runs. `0600` means "**owner** can read and write," and you're the owner, so **Claude can read the `admin-token` file.**
+
+**That means I need to correct something I wrote in Round 2.** I said the token "keeps out everyone else: other users, web pages, and agents." Only half of that was true for agents:
+- An agent that only has **MCP access** (it can call Tool_Box tools, nothing else) can't get the token. The MCP door has no route to the admin API, and no tool hands out the token.
+- An agent with **a shell or file access as your user** (Claude Code, Copilot in agent mode) **can** read the file and call the admin API itself. The token can't stop it, because to the OS it *is* you.
+
+So the accurate version is: **the token keeps out other OS users, web pages, other machines, and MCP-only clients. It does not stop software running as you.** That's a general limit of any per-user secret file; SSH keys and cloud credentials work the same way. The defences for that case are elsewhere: permission prompts in the agent itself, and running untrusted agents as a different user, in a container, or in a sandbox. This is worth writing down as an open question for the v2 epic, since decision 7 ("agents don't change their own settings") is currently enforced only against MCP-only agents.
+
+**Windows equivalents:**
+- When you log in, Windows gives you an **access token** containing your user **SID** (security identifier) and your group SIDs. Every process you start gets a copy of it, and so do *their* child processes. When a process opens a file, the kernel checks that token against the file's **ACL** (access control list). It's the same idea as UID + `rwx` bits on Linux, just more detailed.
+- **`%LOCALAPPDATA%`** is **environment-variable syntax in `cmd.exe`**: `%NAME%` means "substitute the value of the variable NAME." It's the same as `$HOME` in bash. In PowerShell you write `$env:LOCALAPPDATA`. Windows sets this variable at login to `C:\Users\Timothy\AppData\Local`.
+
+---
+
+## 4. The PID mismatch, and where application data lives
+
+### Why the PIDs don't match
+
+`dotnet run` is **not** your app. It's the .NET CLI, which builds the project and then **launches your app as a child process**:
+
+```
+bash
+ └─ dotnet run   (PID 53054: what `&` reported; builds, then waits)
+     └─ ToolBox.Host   (PID 53174: the real host; owns the ports, written into host.json)
+```
+
+`ToolBox.H` in `lsof` is the **apphost**: a small native launcher executable (`bin/Debug/net10.0/ToolBox.Host`) that the build creates next to your DLL. `cat ~/.local/share/ToolBox/host.json` will show `"pid": 53174`.
+
+Two practical consequences:
+- To get a single process, run the built output directly: `dotnet src/ToolBox.Host/bin/Debug/net10.0/ToolBox.Host.dll --mode background`, or `./src/ToolBox.Host/bin/Debug/net10.0/ToolBox.Host --mode background`.
+- To stop it cleanly, use the graceful path rather than killing 53054:
+  `curl -X POST -H "Authorization: Bearer $(cat ~/.local/share/ToolBox/admin-token)" http://127.0.0.1:8095/api/v1/shutdown`
+  (or `kill 53174`). That way toolsets stop properly and `host.json` gets deleted.
+
+### Is the path hard-coded?
+
+**Half of it.** The code does:
+
+```csharp
+Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ToolBox", ...)
+```
+
+- **`ToolBox`** is hard-coded. That's your app's folder name.
+- **The base folder comes from the OS's convention.** .NET asks each platform where per-user app data goes:
+  - **Linux:** the **XDG Base Directory spec** → `$XDG_DATA_HOME`, or `~/.local/share` if that's unset (which is what you saw)
+  - **Windows:** the Known Folders API (`FOLDERID_LocalAppData`) → `C:\Users\Timothy\AppData\Local`
+  - **macOS:** `~/Library/Application Support`
+
+These are **conventions, not enforcement**. The OS doesn't force apps to use them; any program can write anywhere your user can. Well-behaved software follows them so that backups, uninstallers and users know where to look.
+
+### Where other people's software puts things
+
+Almost everyone separates **four kinds of files**:
+
+| Kind | Windows | Linux | macOS |
+|---|---|---|---|
+| **The program itself** (read-only, shared by all users) | `C:\Program Files\App\` (installing needs admin) | `/usr/bin`, `/usr/lib`, `/opt/app` | `/Applications/App.app` |
+| **Per-user data** (state, databases) | `%LOCALAPPDATA%\App` (stays on this machine), `%APPDATA%\App` (Roaming, follows you between domain PCs) | `~/.local/share/app` | `~/Library/Application Support/App` |
+| **Per-user config** | Usually AppData too, sometimes the registry (`HKCU\Software\…`) | `~/.config/app` | `~/Library/Preferences` |
+| **Cache** (safe to delete) | `%LOCALAPPDATA%\App\Cache` | `~/.cache/app` | `~/Library/Caches/App` |
+| **Machine-wide data** | `C:\ProgramData\App` | `/etc/app` (config), `/var/lib/app` (data) | `/Library/Application Support/App` |
+
+Tool_Box already follows this split: **`appsettings.json` ships next to the binary** (read via `AppContext.BaseDirectory`: defaults that come with the program), while **your state lives in per-user data** (the four files). The key benefit: **the data location doesn't depend on where the program lives.** Today the binary is in your git clone; after an install it would live somewhere else, and `~/.local/share/ToolBox/` stays exactly the same.
+
+### How a real user would run Tool_Box
+
+This is the roadmap's S6 ("installers, start with the OS"). The likely shapes:
+
+1. **Install a published binary**, with no repo and no SDK:
+   - a `dotnet tool` (`dotnet tool install -g ToolBox` → a `toolbox` command on PATH, with the binary under `~/.dotnet/tools`)
+   - or a self-contained single-file build (no .NET install needed), distributed as an MSI/MSIX on Windows, a `.deb` on Linux, or Homebrew on macOS.
+2. **Register it with an agent**, either way:
+   - stdio: `claude mcp add toolbox -- toolbox` (Claude starts its own copy each session)
+   - HTTP: point the agent at `http://127.0.0.1:8080/mcp` (connects to the shared background host).
+3. **Have the background host start automatically** (S6):
+   - Linux: a **systemd *user*** unit (`~/.config/systemd/user/toolbox.service`)
+   - Windows: a per-user startup entry or a Task Scheduler "at logon" task
+   - macOS: a LaunchAgent.
+4. **The GUI** (S2) reads `~/.local/share/ToolBox/host.json` to find that host and `admin-token` to control it.
+
+**One trap to plan for:** if you made it a **Windows Service** or a **system-wide** systemd service, it would run as a *service account*, not as you. `LocalApplicationData` would then resolve to *that account's* folder (e.g. `C:\Windows\System32\config\systemprofile\AppData\Local`), and your GUI, looking in *your* AppData, would never find `host.json` or the token. That's why "one host **per user**" points toward a **per-user** startup mechanism (systemd *user* unit, logon task, LaunchAgent), not a machine-wide service. It's worth an ADR when S6 comes up.
