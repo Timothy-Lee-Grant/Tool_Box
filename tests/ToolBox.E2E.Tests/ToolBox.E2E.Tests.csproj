@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Shared settings come from Directory.Build.props -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <!-- Same version the Host pins; this is the real client a GUI or agent would use. -->
+    <PackageReference Include="ModelContextProtocol" Version="1.4.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Black box: build the Host first, but do NOT reference its assembly, so no Tool_Box type is reachable. -->
+    <ProjectReference Include="..\..\src\ToolBox.Host\ToolBox.Host.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>
