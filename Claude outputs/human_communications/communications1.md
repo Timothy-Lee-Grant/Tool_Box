@@ -642,3 +642,103 @@ docker compose down
 Combined with `NUGET_PACKAGES="/Volumes/T7/nuget-packages"` in your `.zshrc`, **the T7 becomes required for all Tool_Box development**: .NET restores, VS Code's C# extension *and* Docker all depend on it. That's fine if the drive basically lives plugged into your Mac. If you carry it around, expect the "random" failures you saw in VS Code to show up in Docker too whenever it's missing.
 
 **To undo it**, use the same **Disk image location** setting: choose a folder on the internal disk and **Apply & restart**.
+
+
+
+1. I am trying to make sure that I understand how the sockets are working, and so first off, I will try to describe my understanding, and can you also show me in the actual toolbox project how these things are working? So, I think what's going on is I first ask for a socket, and that means that I am going to be able to ask the operating system that I want something that is able to do TCP communication, but at this point, it is not assigned to any kind of IP or port. So now, the next thing that I do is I'm going to bind, and I only bind on two things. I bind on the IP address and the port. But this does not make a full socket, I'm guessing, because I know that an actual socket needs four numbers. But at this point, we have nothing that connected, and so it makes sense that we would only have two numbers at this point. Now, this is something that I'm thinking is where I might have been having some points of confusion because I know that the sockets are the four numbers, and I was getting confused as to why we were getting that error of the ports being in use, but I'm thinking that the operating system is going to block the bind command even though it's just two parameters. And so this is why we are not able to bind to a combination of those two things. And now, when I am on my computer and I use my browser and I send a command that I want to do an HTTP request, I will give the destination that I want, and that destination is going to have the specific port for HTTP or HTTPS. And that means that I'm going to hit the server at that location, and then I have the server's IP address. But when I do this request, my web browser application is actually going to ask for a port which is ephemeral and just for that specific transaction. And so on my local machine, I am never having two applications that are having local conflicts with the same IP and port number. And then on the server side, they only have the single application which is listening on their IP address and port 80 and 443. So that is okay because it is a single application listening, and so it's a single socket, or actually two separate sockets for each of those combinations.
+
+So now, once I have done the bind command, that means that I am acting as the server, and I am saying that I want to look at anything that comes into my computer at that specific IP address, networking interface, and that specific port. And if something comes and tries to reach me at that specific location, then I want to be able to interact with this. So that is what the binding does. Now when I am listening, that means that I want to be able to interact with that specific socket. The next thing that I do is that I perform an accept method on that socket, and that is telling the operating system that whenever there is a request that comes in that meets those parameters which I did the bind command on, I want the operating system to create a new socket, and that socket is going to be having a ephemeral port number for that specific request. But actually, this comes out to a couple of strange things because I'm thinking that probably the client is going to have their ephemeral port and their IP address, and I'm guessing that that is not going to change. And they have reached me at the specified hard-coded values which we did the bind on. And now I am saying for this particular request, actually I want to change the port number. And so now I have changed my port number from the universally hard-coded value to some random ephemeral value. And I'm going to say that this is for this specific connection, so that seems a little bit strange, but I guess it does make sense about how it would not form a conflict. And I'm also guessing that this is how it would allow the C# .NET application to track the lifetime of a scoped service for a particular request.
+
+2. So with that context, I should be able to reach the viewer by doing this on my local machine, right? (but I don't see anything)
+
+```
+timothy@timothy-System-Product-Name:~/Desktop/projects/Tool_Box$ dotnet run --project src/ToolBox.Host -- --transport http
+info: ToolBox.Voxel.VoxelViewerBroadcastService[0]
+      Voxel viewer listening on 127.0.0.1:8090 (path /voxel/)
+info: ToolBox.Host.ToolsetReconcilerService[0]
+      Enabled toolsets: basics, voxel
+info: Microsoft.Hosting.Lifetime[14]
+      Now listening on: http://127.0.0.1:8080
+info: Microsoft.Hosting.Lifetime[14]
+      Now listening on: http://127.0.0.1:8095
+info: Microsoft.Hosting.Lifetime[0]
+      Application started. Press Ctrl+C to shut down.
+info: Microsoft.Hosting.Lifetime[0]
+      Hosting environment: Production
+info: Microsoft.Hosting.Lifetime[0]
+      Content root path: /home/timothy/Desktop/projects/Tool_Box
+```
+
+http://127.0.0.1:8090/voxel/
+
+I do see that it is open and listening:
+```
+timothy@timothy-System-Product-Name:~$ lsof -nP -iTCP -sTCP:LISTEN 
+COMMAND     PID    USER   FD   TYPE DEVICE SIZE/OFF NODE NAME
+openclaw-  2507 timothy   25u  IPv4  24553      0t0  TCP 127.0.0.1:18789 (LISTEN)
+openclaw-  2507 timothy   26u  IPv6  24554      0t0  TCP [::1]:18789 (LISTEN)
+openclaw-  2507 timothy   27u  IPv4  27813      0t0  TCP 127.0.0.1:18791 (LISTEN)
+code       8417 timothy   39u  IPv4  48565      0t0  TCP 127.0.0.1:45775 (LISTEN)
+code       8516 timothy   53u  IPv4  48408      0t0  TCP 127.0.0.1:51906 (LISTEN)
+code       8516 timothy   85u  IPv4  46724      0t0  TCP 127.0.0.1:35595 (LISTEN)
+ToolBox.H 38616 timothy  213u  IPv4 134868      0t0  TCP 127.0.0.1:8090 (LISTEN)
+ToolBox.H 38616 timothy  221u  IPv4 135583      0t0  TCP 127.0.0.1:8080 (LISTEN)
+ToolBox.H 38616 timothy  222u  IPv4 135584      0t0  TCP 127.0.0.1:8095 (LISTEN)
+timothy@timothy-System-Product-Name:~$ 
+
+```
+
+
+3. When you say `Security model in one line: anyone who can read files as your OS user is already trusted. The token keeps out everyone else: other users, web pages, and agents.` I am wondering about how processes on my computer will take permissions based on who starts them. If I launch claude in my terminal, because I am the user who launched the child process of claude, then claude agent now should inherit my permissions (right?) so it can read all my files (including the ones which are 600?). And what is this in Windows where I keep seeing the % sign `%LOCALAPPDATA%`?
+
+4. My application is running, but when I do these commands, I don't see my host.json
+
+```
+timothy@timothy-System-Product-Name:~/Desktop/projects/Tool_Box$ dotnet run --project src/ToolBox.Host -- --transport http
+info: ToolBox.Voxel.VoxelViewerBroadcastService[0]
+      Voxel viewer listening on 127.0.0.1:8090 (path /voxel/)
+info: ToolBox.Host.ToolsetReconcilerService[0]
+      Enabled toolsets: basics, voxel
+info: Microsoft.Hosting.Lifetime[14]
+      Now listening on: http://127.0.0.1:8080
+info: Microsoft.Hosting.Lifetime[14]
+      Now listening on: http://127.0.0.1:8095
+info: Microsoft.Hosting.Lifetime[0]
+      Application started. Press Ctrl+C to shut down.
+info: Microsoft.Hosting.Lifetime[0]
+      Hosting environment: Production
+info: Microsoft.Hosting.Lifetime[0]
+      Content root path: /home/timothy/Desktop/projects/Tool_Box
+
+```
+
+```
+timothy@timothy-System-Product-Name:~$ ls ~/.local/share/ToolBox/
+admin-token
+timothy@timothy-System-Product-Name:~$ 
+
+```
+
+I think I figured it out. I was not in background mode (I was only on http mode). Although I am noticing that it appears that the PID 53054 is not matching up with the PID which is listening on the toolbox ports.
+
+```
+timothy@timothy-System-Product-Name:~/Desktop/projects/Tool_Box$ nohup dotnet run --project src/ToolBox.Host -- --mode background > toolbox.log 2>&1 &
+[1] 53054
+timothy@timothy-System-Product-Name:~$ ls ~/.local/share/ToolBox/
+admin-token  host.json  instance.lock
+timothy@timothy-System-Product-Name:~$ lsof -nP -iTCP -sTCP:LISTEN 
+COMMAND     PID    USER   FD   TYPE DEVICE SIZE/OFF NODE NAME
+openclaw-  2507 timothy   25u  IPv4  24553      0t0  TCP 127.0.0.1:18789 (LISTEN)
+openclaw-  2507 timothy   26u  IPv6  24554      0t0  TCP [::1]:18789 (LISTEN)
+openclaw-  2507 timothy   27u  IPv4  27813      0t0  TCP 127.0.0.1:18791 (LISTEN)
+code       8417 timothy   39u  IPv4  48565      0t0  TCP 127.0.0.1:45775 (LISTEN)
+code       8516 timothy   53u  IPv4  48408      0t0  TCP 127.0.0.1:51906 (LISTEN)
+code       8516 timothy   85u  IPv4  46724      0t0  TCP 127.0.0.1:35595 (LISTEN)
+ToolBox.H 53174 timothy  214u  IPv4 314629      0t0  TCP 127.0.0.1:8090 (LISTEN)
+ToolBox.H 53174 timothy  222u  IPv4 314636      0t0  TCP 127.0.0.1:8080 (LISTEN)
+ToolBox.H 53174 timothy  223u  IPv4 314637      0t0  TCP 127.0.0.1:8095 (LISTEN)
+```
+
+So now I am trying to understand how those paths are actually agreed upon because it seems like software applications will have their persistent data or files that are stored at specific locations. And so now I'm trying to figure out if we are hard coding this or if the operating system just defaults to putting an application's data in a specific location. And then this also has ramifications and implications for how I interact with other software that other people create. And so when I'm running software which other people created, where do they put their data on my system? And from my understanding, I am running this application from the actual DLL which I compiled myself and is on my computer because I cloned my GitHub repository and am doing development. But I don't think that that is the way that a user is going to interact with my application. And so can you go into how the user is going to interact with my application, where they are going to be launching it, what that is going to mean for the different paths which are being invoked, and how my application is going to keep track of those?
+
+5. 
