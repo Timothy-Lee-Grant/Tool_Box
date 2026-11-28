@@ -9,7 +9,7 @@ namespace ToolBox.Embedded.Tests;
 /// would hide exactly the kind of process-plumbing bug (wrong working
 /// directory, stdout/stderr not both captured, exit code misread) this
 /// toolset is actually at risk of. Requires arm-none-eabi-gcc and make on
-/// PATH — installed locally via Homebrew during plan 006 Step 2, and via
+/// PATH (tests skip when missing, see ArmGccFact) — installed locally via Homebrew during plan 006 Step 2, and via
 /// ci.yml's toolchain-install step in CI.
 /// </summary>
 public class BuildToolsTests
@@ -17,7 +17,7 @@ public class BuildToolsTests
     private static FirmwareDirectory Fixture(string name) =>
         new(Path.Combine(AppContext.BaseDirectory, "Fixtures", name));
 
-    [Fact]
+    [ArmGccFact]
     public void BuildFirmware_ValidSource_ReportsSuccess()
     {
         var tools = new BuildTools(new EmbeddedSession(), Fixture("valid-firmware"));
@@ -27,7 +27,7 @@ public class BuildToolsTests
         Assert.Contains("succeeded", result);
     }
 
-    [Fact]
+    [ArmGccFact]
     public void BuildFirmware_BrokenSource_ReportsFailure()
     {
         var tools = new BuildTools(new EmbeddedSession(), Fixture("broken-firmware"));
@@ -37,7 +37,7 @@ public class BuildToolsTests
         Assert.Contains("FAILED", result);
     }
 
-    [Fact]
+    [ArmGccFact]
     public void GetBuildLog_BeforeAnyBuild_SaysSoRatherThanReturningEmpty()
     {
         var tools = new BuildTools(new EmbeddedSession(), Fixture("valid-firmware"));
@@ -45,7 +45,7 @@ public class BuildToolsTests
         Assert.Contains("no build has been run yet", tools.GetBuildLog());
     }
 
-    [Fact]
+    [ArmGccFact]
     public void GetBuildLog_AfterFailedBuild_ContainsTheRealCompilerError()
     {
         var tools = new BuildTools(new EmbeddedSession(), Fixture("broken-firmware"));
@@ -56,7 +56,7 @@ public class BuildToolsTests
         Assert.Contains("undefined_symbol_that_does_not_exist", log);
     }
 
-    [Fact]
+    [ArmGccFact]
     public void CleanBuild_RemovesTheBuildDirectory()
     {
         string dir = Path.Combine(AppContext.BaseDirectory, "Fixtures", "valid-firmware");

@@ -70,6 +70,12 @@ This is **enforced by GitHub, not by convention**: the `next-gate` ruleset requi
 - Code-owner review required (0 other approvals), and stale approvals are dismissed on new pushes.
 - Agent PRs are squash-merged. The agent enables auto-merge with `gh pr merge --auto --squash <n>`, only into `next`. Auto-merge waits for the gate; it cannot skip it.
 
+## The gate on `main` (ruleset `main-gate`)
+- Active on `main`: a PR is required, and the required checks are `build-and-test` and `docker`. There is no bypass list.
+- Created by hand in GitHub settings after v1.2.0 (rulesets live in settings, not in the repo), so this section is the only record of it.
+- Required checks match on job **name**. Keep `build-and-test` and `docker` as plain, non-matrix jobs; a matrix would rename them (`build-and-test (ubuntu-latest)`) and the rulesets would wait forever (#104).
+- The `cross-platform (macos-latest)`, `cross-platform (windows-latest)` and `e2e` checks are advisory at first. Timothy promotes them into `next-gate` and `main-gate` after about a week of green runs.
+
 ## Limits and the kill switch
 - **One PR per run.** The push helper lets a run push one branch, and Phase 1 sizing is one PR per issue. An epic's steps are separate issues or separate `APPROVED` comments, one run each.
 - **Single-flight:** `claude.yml` uses one repo-wide concurrency group, so one run is active at a time. A group keeps one running and one pending run, so wait for a run to finish before triggering the next, or the older pending one is cancelled.
