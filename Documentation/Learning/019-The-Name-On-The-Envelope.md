@@ -1,6 +1,6 @@
 2026_11_14_05_14-The-Name-On-The-Envelope
 
-# Lecture 016: The Name on the Envelope (DNS rebinding, Host vs Origin, and middleware order)
+# Lecture 019: The Name on the Envelope (DNS rebinding, Host vs Origin, and middleware order)
 
 Written after issue #66 (MCP endpoint DNS-rebinding defence), PR A (#80), PR B, and ADR-021. Lecture 015 section 3 introduced DNS rebinding for the admin port. This lecture goes slower and deeper, because issue #66 applied the same defence to the MCP port and hit three subtle problems on the way: the Docker published port, the order of middleware, and a real-world CVE. Every snippet below is real code in this repo, so keep the files open beside the text.
 
