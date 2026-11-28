@@ -64,6 +64,12 @@ dotnet build            # zero warnings — Directory.Build.props makes any warn
 dotnet test              # runs every test project under tests/
 ```
 
+The end-to-end tests (background host and Docker container) are skipped by default. To run them, with Docker running:
+
+```bash
+TOOLBOX_E2E=1 dotnet test tests/ToolBox.E2E.Tests --configuration Release
+```
+
 If both commands finish clean, the environment is verified end to end — nothing below requires anything you haven't already proven works.
 
 ## See it build something live

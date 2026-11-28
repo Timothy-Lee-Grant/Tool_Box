@@ -1,0 +1,10 @@
+# E2E override (#113): layered on the repo's docker-compose.yml by ComposeStack, never edited into it.
+# - container_name is reset so a running dev stack's "toolbox" container cannot collide.
+# - ports are reset to container-only, so Docker picks free host ports; the test reads them with `docker compose port`.
+# Everything else (TOOLBOX_* env, AllowedHosts, healthcheck) comes from the base file, so the test checks what ships.
+services:
+  toolbox:
+    container_name: !reset null
+    ports: !override
+      - "8080"
+      - "8090"
